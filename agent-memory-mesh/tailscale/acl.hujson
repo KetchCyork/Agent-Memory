@@ -1,0 +1,29 @@
+// Tailscale ACL for the agent mesh.
+// Paste into the Tailscale admin console -> Access Controls.
+// HuJSON (JSON with comments + trailing commas allowed).
+{
+  "tagOwners": {
+    "tag:hq":       ["autogroup:owner"],
+    "tag:worker":   ["autogroup:owner"],
+    "tag:worknode": ["autogroup:owner"],
+  },
+
+  "acls": [
+    // You (the owner), from any of your devices incl. phone, can reach everything.
+    { "action": "accept", "src": ["autogroup:owner"], "dst": ["*:*"] },
+
+    // Worker (Linux) and work node (Windows) may reach ONLY the Paperclip server
+    // (3100) and the memory API (8377) on HQ. Nothing else on HQ is exposed.
+    {
+      "action": "accept",
+      "src": ["tag:worker", "tag:worknode"],
+      "dst": ["tag:hq:3100,8377"],
+    },
+
+    // NOTE: there is intentionally no rule allowing HQ or the worker to reach the
+    // work node. Work/client data on tag:worknode stays private. Add an explicit
+    // rule here only if a specific flow needs it.
+  ],
+
+  "ssh": [],
+}
