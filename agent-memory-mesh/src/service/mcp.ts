@@ -11,6 +11,10 @@
  *   record_correction(sessionId, note, sourceEntryId?) -> correction entry
  *   query_work_memory(sessionId?, type?, since?, limit?) -> entries
  *   consolidate_sessions(sessionId?)      -> lesson notes written to vault
+ *   upsert_entity(name, type, ...)        -> entity in context graph
+ *   add_graph_edge(fromId, toId, relation) -> edge in context graph
+ *   query_graph_entities(type?, name?)    -> entity list
+ *   get_entity_wiki(entityId)             -> build/return entity wiki
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -160,6 +164,90 @@ export async function startMcpStdio(cfg: MemoryConfig, engine: MemoryEngine): Pr
             .join("\n")
         : "No sessions found to consolidate.";
       return { content: [{ type: "text", text }] };
+    }
+  );
+
+  server.registerTool(
+    "upsert_entity",
+    {
+      title: "Upsert graph entity",
+      description:
+        "Add or update an entity in the context graph. Entities are projects, people, documents, " +
+        "connectors, or concepts. Idempotent — calling twice with the same name updates in place.",
+      inputSchema: {
+        name: z.string().describe("Human-readable entity name."),
+        type: z.enum(["project", "person", "document", "connector", "concept"]).describe("Entity type."),
+        description: z.string().optional().describe("Short description of the entity."),
+        tags: z.array(z.string()).optional().describe("Free-form tags."),
+        id: z.string().optional().describe("Explicit ID — omit to auto-generate or match by name."),
+      },
+    },
+    async (input) => {
+      const entity = engine.upsertEntity(input as any);
+      return { content: [{ type: "text", text: JSON.stringify(entity, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    "add_graph_edge",
+    {
+      title: "Add context graph edge",
+      description: "Connect two entities with a typed relation. Both entities must already exist.",
+      inputSchema: {
+        fromId: z.string().describe("Source entity ID."),
+        toId: z.string().describe("Target entity ID."),
+        relation: z.string().describe("Relation type, e.g. 'works_on', 'owns', 'belongs_to', 'references'."),
+        weight: z.number().optional().describe("Optional relevance weight (0-1)."),
+      },
+    },
+    async ({ fromId, toId, relation, weight }) => {
+      const edge = engine.addEdge(fromId, toId, relation, weight);
+      return { content: [{ type: "text", text: JSON.stringify(edge, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    "query_graph_entities",
+    {
+      title: "Query context graph",
+      description: "Find entities in the context graph by type or name substring.",
+      inputSchema: {
+        type: z.enum(["project", "person", "document", "connector", "concept"]).optional().describe("Filter by entity type."),
+        name: z.string().optional().describe("Filter by name substring."),
+      },
+    },
+    async ({ type, name }) => {
+      let entities = engine.listEntities();
+      if (type) entities = entities.filter((e) => e.type === type);
+      if (name) entities = entities.filter((e) => e.name.toLowerCase().includes(name.toLowerCase()));
+      const text = entities.length
+        ? entities.map((e) => `[${e.type}] ${e.name} (${e.id})${e.wiki ? "\n  " + e.wiki : ""}`).join("\n")
+        : "No entities found.";
+      return { content: [{ type: "text", text }] };
+    }
+  );
+
+  server.registerTool(
+    "get_entity_wiki",
+    {
+      title: "Get or build entity wiki",
+      description:
+        "Return the wiki summary for an entity, building it if not yet generated. " +
+        "The wiki is a compact description suitable for injection into agent context.",
+      inputSchema: {
+        entityId: z.string().describe("Entity ID."),
+      },
+    },
+    async ({ entityId }) => {
+      const entity = await engine.buildEntityWiki(entityId);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `**${entity.name}** (${entity.type})\n\n${entity.wiki ?? "No wiki generated."}`,
+          },
+        ],
+      };
     }
   );
 

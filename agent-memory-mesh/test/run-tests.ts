@@ -2,12 +2,14 @@
 
 import { runWorkMemoryTests } from "./work-memory.test.js";
 import { runConsolidatorTests } from "./consolidator.test.js";
+import { runContextGraphTests } from "./context-graph.test.js";
 
 async function main() {
   let exitCode = 0;
   const suites = [
     { name: "WorkMemory", fn: runWorkMemoryTests },
     { name: "Consolidator", fn: runConsolidatorTests },
+    { name: "ContextGraph", fn: runContextGraphTests },
   ];
 
   for (const suite of suites) {

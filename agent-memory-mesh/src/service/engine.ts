@@ -13,14 +13,16 @@ import { MemoryStore, type RetrievalHit } from "../memory/store.js";
 import { Indexer, type IndexResult } from "../memory/indexer.js";
 import { WorkMemoryStore, type WorkMemoryEntry, type WorkMemoryQuery } from "../memory/work-memory.js";
 import { Consolidator, type ConsolidationResult } from "../memory/consolidator.js";
+import { ContextGraph, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult } from "../memory/context-graph.js";
 
-export { type WorkMemoryEntry, type WorkMemoryQuery, type ConsolidationResult };
+export { type WorkMemoryEntry, type WorkMemoryQuery, type ConsolidationResult, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult };
 
 export class MemoryEngine {
   private embedder: Embedder;
   private store: MemoryStore;
   private workMemory: WorkMemoryStore;
   private consolidator: Consolidator;
+  private graph: ContextGraph;
   private opened = false;
 
   constructor(private cfg: MemoryConfig) {
@@ -31,6 +33,10 @@ export class MemoryEngine {
       vaultPath: cfg.vaultPath,
       ollamaUrl: cfg.ollamaUrl,
       consolidationModel: cfg.consolidationModel || undefined,
+    });
+    this.graph = new ContextGraph(cfg.graphPath, {
+      ollamaUrl: cfg.ollamaUrl,
+      wikiModel: cfg.consolidationModel || undefined,
     });
   }
 
@@ -83,5 +89,55 @@ export class MemoryEngine {
 
   async consolidateSession(sessionId: string): Promise<ConsolidationResult> {
     return this.consolidator.consolidateSession(sessionId);
+  }
+
+  // Context graph — entities, edges, and LLM-wiki summaries.
+
+  upsertEntity(input: Omit<ContextGraphEntity, "id" | "createdAt" | "updatedAt"> & { id?: string }): ContextGraphEntity {
+    return this.graph.upsertEntity(input);
+  }
+
+  getEntity(id: string): ContextGraphEntity | undefined {
+    return this.graph.getEntity(id);
+  }
+
+  removeEntity(id: string): boolean {
+    return this.graph.removeEntity(id);
+  }
+
+  listEntities(): ContextGraphEntity[] {
+    return this.graph.listEntities();
+  }
+
+  findEntitiesByType(type: EntityType): ContextGraphEntity[] {
+    return this.graph.findByType(type);
+  }
+
+  findEntitiesByName(name: string): ContextGraphEntity[] {
+    return this.graph.findByName(name);
+  }
+
+  addEdge(fromId: string, toId: string, relation: string, weight?: number, metadata?: Record<string, unknown>): ContextGraphEdge {
+    return this.graph.addEdge(fromId, toId, relation, weight, metadata);
+  }
+
+  removeEdge(edgeId: string): boolean {
+    return this.graph.removeEdge(edgeId);
+  }
+
+  getEdges(entityId?: string): ContextGraphEdge[] {
+    return this.graph.getEdges(entityId);
+  }
+
+  getNeighbors(entityId: string): NeighborResult[] {
+    return this.graph.neighbors(entityId);
+  }
+
+  async buildEntityWiki(entityId: string): Promise<ContextGraphEntity> {
+    return this.graph.buildWiki(entityId);
+  }
+
+  async buildAllWikis(): Promise<number> {
+    return this.graph.buildAllWikis();
   }
 }

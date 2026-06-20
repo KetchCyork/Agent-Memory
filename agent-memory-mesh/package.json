@@ -8,6 +8,7 @@
     "serve": "tsx src/cli/serve.ts",
     "serve:mcp": "tsx src/cli/serve.ts --mcp",
     "consolidate": "tsx src/cli/consolidate.ts",
+    "graph": "tsx src/cli/graph.ts",
     "test": "tsx test/run-tests.ts",
     "typecheck": "tsc --noEmit"
   },

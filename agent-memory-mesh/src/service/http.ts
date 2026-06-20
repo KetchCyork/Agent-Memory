@@ -15,6 +15,14 @@
  *   GET  /work-memory/session/:id          -> { entries }
  *   POST /consolidate                      -> { results: ConsolidationResult[] }
  *   POST /consolidate/:sessionId           -> { result: ConsolidationResult }
+ *   POST /graph/entities                   -> { entity }
+ *   GET  /graph/entities[?type=&name=]     -> { entities }
+ *   GET  /graph/entities/:id               -> { entity, edges, neighbors }
+ *   DELETE /graph/entities/:id             -> { ok }
+ *   POST /graph/edges                      -> { edge }
+ *   DELETE /graph/edges/:id                -> { ok }
+ *   GET  /graph/entities/:id/neighbors     -> { neighbors }
+ *   POST /graph/wiki/:id                   -> { entity }
  *
  * Auth: if MEMORY_API_KEY is set, every request must send X-Api-Key with it.
  * Bind: set MEMORY_HOST to your tailnet name/IP to share; defaults to loopback.
@@ -119,6 +127,72 @@ export function startHttp(
         const sessionId = decodeURIComponent(consolidateMatch[1]);
         const result = await engine.consolidateSession(sessionId);
         return send(res, 200, { result });
+      }
+
+      // Context graph endpoints
+
+      if (req.method === "POST" && url.pathname === "/graph/entities") {
+        const body = await readJson(req);
+        if (!body.name) return send(res, 400, { error: "name is required" });
+        if (!body.type) return send(res, 400, { error: "type is required" });
+        const entity = engine.upsertEntity(body);
+        return send(res, 201, { entity });
+      }
+
+      if (req.method === "GET" && url.pathname === "/graph/entities") {
+        const q = url.searchParams;
+        let entities = engine.listEntities();
+        if (q.has("type")) entities = entities.filter((e) => e.type === q.get("type"));
+        if (q.has("name")) entities = engine.findEntitiesByName(q.get("name")!);
+        return send(res, 200, { entities });
+      }
+
+      const entityIdMatch = url.pathname.match(/^\/graph\/entities\/([^/]+)$/);
+      if (entityIdMatch) {
+        const id = decodeURIComponent(entityIdMatch[1]);
+        if (req.method === "GET") {
+          const entity = engine.getEntity(id);
+          if (!entity) return send(res, 404, { error: "entity not found" });
+          const edges = engine.getEdges(id);
+          const neighbors = engine.getNeighbors(id);
+          return send(res, 200, { entity, edges, neighbors });
+        }
+        if (req.method === "DELETE") {
+          const ok = engine.removeEntity(id);
+          return send(res, ok ? 200 : 404, { ok });
+        }
+      }
+
+      if (req.method === "POST" && url.pathname === "/graph/edges") {
+        const body = await readJson(req);
+        if (!body.fromId) return send(res, 400, { error: "fromId is required" });
+        if (!body.toId) return send(res, 400, { error: "toId is required" });
+        if (!body.relation) return send(res, 400, { error: "relation is required" });
+        if (!engine.getEntity(body.fromId)) return send(res, 400, { error: "fromId entity not found" });
+        if (!engine.getEntity(body.toId)) return send(res, 400, { error: "toId entity not found" });
+        const edge = engine.addEdge(body.fromId, body.toId, body.relation, body.weight, body.metadata);
+        return send(res, 201, { edge });
+      }
+
+      const edgeIdMatch = url.pathname.match(/^\/graph\/edges\/([^/]+)$/);
+      if (req.method === "DELETE" && edgeIdMatch) {
+        const ok = engine.removeEdge(decodeURIComponent(edgeIdMatch[1]));
+        return send(res, ok ? 200 : 404, { ok });
+      }
+
+      const neighborsMatch = url.pathname.match(/^\/graph\/entities\/([^/]+)\/neighbors$/);
+      if (req.method === "GET" && neighborsMatch) {
+        const id = decodeURIComponent(neighborsMatch[1]);
+        if (!engine.getEntity(id)) return send(res, 404, { error: "entity not found" });
+        const neighbors = engine.getNeighbors(id);
+        return send(res, 200, { neighbors });
+      }
+
+      const wikiMatch = url.pathname.match(/^\/graph\/wiki\/([^/]+)$/);
+      if (req.method === "POST" && wikiMatch) {
+        const id = decodeURIComponent(wikiMatch[1]);
+        const entity = await engine.buildEntityWiki(id);
+        return send(res, 200, { entity });
       }
 
       return send(res, 404, { error: "not found" });
