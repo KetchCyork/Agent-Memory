@@ -7,12 +7,16 @@
  *
  * Endpoints:
  *   GET  /health                           -> { ok: true }
- *   POST /search   { query, k?, filter? }  -> { hits: [...] }
+ *   POST /search   { query, k?, filter?, policy? }  -> { hits, wikis?, policy? }
  *   POST /reindex  {}                      -> { notes, chunks }
  *   POST /work-memory  { entry }           -> { entry }
  *   GET  /work-memory  [?sessionId&type&agentId&since&limit]  -> { entries }
  *   POST /work-memory/correction           -> { entry }
  *   GET  /work-memory/session/:id          -> { entries }
+ *   GET  /policies                         -> { policies }
+ *   POST /policies                         -> { policy }
+ *   DELETE /policies/:name                 -> { ok }
+ *   POST /wiki/preload  { query?, entityIds?, limit? }  -> { wikis }
  *   POST /consolidate                      -> { results: ConsolidationResult[] }
  *   POST /consolidate/:sessionId           -> { result: ConsolidationResult }
  *   POST /graph/entities                   -> { entity }
@@ -68,6 +72,13 @@ export function startHttp(
         const body = await readJson(req);
         const query = String(body.query ?? "").trim();
         if (!query) return send(res, 400, { error: "query is required" });
+        if (body.policy) {
+          const result = await engine.searchWithPolicy(query, String(body.policy), {
+            k: Number.isFinite(body.k) ? Number(body.k) : undefined,
+            filter: body.filter ? String(body.filter) : undefined,
+          });
+          return send(res, 200, result);
+        }
         const k = Number.isFinite(body.k) ? Number(body.k) : 8;
         const hits = await engine.search(query, k, body.filter ? String(body.filter) : undefined);
         return send(res, 200, { hits });
@@ -76,6 +87,44 @@ export function startHttp(
       if (req.method === "POST" && url.pathname === "/reindex") {
         const result = await engine.reindex();
         return send(res, 200, result);
+      }
+
+      // Retrieval policy endpoints
+
+      if (req.method === "GET" && url.pathname === "/policies") {
+        return send(res, 200, { policies: engine.listPolicies() });
+      }
+
+      if (req.method === "POST" && url.pathname === "/policies") {
+        const body = await readJson(req);
+        if (!body.name) return send(res, 400, { error: "name is required" });
+        if (typeof body.k !== "number") return send(res, 400, { error: "k (number) is required" });
+        try {
+          const policy = engine.upsertPolicy(body);
+          return send(res, 201, { policy });
+        } catch (err: any) {
+          return send(res, 400, { error: err.message });
+        }
+      }
+
+      const policyNameMatch = url.pathname.match(/^\/policies\/(.+)$/);
+      if (req.method === "DELETE" && policyNameMatch) {
+        try {
+          const ok = engine.deletePolicy(decodeURIComponent(policyNameMatch[1]));
+          return send(res, ok ? 200 : 404, { ok });
+        } catch (err: any) {
+          return send(res, 400, { error: err.message });
+        }
+      }
+
+      if (req.method === "POST" && url.pathname === "/wiki/preload") {
+        const body = await readJson(req);
+        const wikis = engine.preloadWiki({
+          query: body.query ? String(body.query) : undefined,
+          entityIds: Array.isArray(body.entityIds) ? body.entityIds : undefined,
+          limit: Number.isFinite(body.limit) ? Number(body.limit) : undefined,
+        });
+        return send(res, 200, { wikis });
       }
 
       // Work memory endpoints

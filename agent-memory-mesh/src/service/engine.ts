@@ -10,12 +10,27 @@
 import type { MemoryConfig } from "../config.js";
 import { Embedder } from "../memory/embeddings.js";
 import { MemoryStore, type RetrievalHit } from "../memory/store.js";
+export { type RetrievalHit };
 import { Indexer, type IndexResult } from "../memory/indexer.js";
 import { WorkMemoryStore, type WorkMemoryEntry, type WorkMemoryQuery } from "../memory/work-memory.js";
 import { Consolidator, type ConsolidationResult } from "../memory/consolidator.js";
 import { ContextGraph, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult } from "../memory/context-graph.js";
+import { RetrievalPolicyStore, applyRecencyBoost, type RetrievalPolicy } from "../memory/retrieval-policy.js";
 
-export { type WorkMemoryEntry, type WorkMemoryQuery, type ConsolidationResult, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult };
+export { type WorkMemoryEntry, type WorkMemoryQuery, type ConsolidationResult, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult, type RetrievalPolicy };
+
+export interface WikiSummary {
+  entityId: string;
+  name: string;
+  type: EntityType;
+  wiki: string;
+}
+
+export interface PolicySearchResult {
+  hits: RetrievalHit[];
+  wikis: WikiSummary[];
+  policy: RetrievalPolicy;
+}
 
 export class MemoryEngine {
   private embedder: Embedder;
@@ -23,6 +38,7 @@ export class MemoryEngine {
   private workMemory: WorkMemoryStore;
   private consolidator: Consolidator;
   private graph: ContextGraph;
+  private policies: RetrievalPolicyStore;
   private opened = false;
 
   constructor(private cfg: MemoryConfig) {
@@ -38,6 +54,7 @@ export class MemoryEngine {
       ollamaUrl: cfg.ollamaUrl,
       wikiModel: cfg.consolidationModel || undefined,
     });
+    this.policies = new RetrievalPolicyStore(cfg.policiesPath);
   }
 
   /** Open the store lazily, sizing the table from a probe embedding the first time. */
@@ -139,5 +156,70 @@ export class MemoryEngine {
 
   async buildAllWikis(): Promise<number> {
     return this.graph.buildAllWikis();
+  }
+
+  // Retrieval policies
+
+  getPolicy(name: string): RetrievalPolicy | undefined {
+    return this.policies.get(name);
+  }
+
+  listPolicies(): RetrievalPolicy[] {
+    return this.policies.list();
+  }
+
+  upsertPolicy(policy: RetrievalPolicy): RetrievalPolicy {
+    return this.policies.upsert(policy);
+  }
+
+  deletePolicy(name: string): boolean {
+    return this.policies.delete(name);
+  }
+
+  /** Search using a named policy (or "default"). Applies recency boost + wiki preload. */
+  async searchWithPolicy(
+    query: string,
+    policyName = "default",
+    overrides?: Partial<Pick<RetrievalPolicy, "k" | "filter">>
+  ): Promise<PolicySearchResult> {
+    const base = this.policies.get(policyName) ?? this.policies.get("default")!;
+    const policy: RetrievalPolicy = { ...base, ...overrides };
+    await this.ensureOpen();
+    const qvec = await this.embedder.embed(query);
+    let hits = await this.store.retrieve(query, qvec, policy.k, policy.filter);
+    if (policy.boostRecent) hits = applyRecencyBoost(hits, policy.boostRecentFactor);
+    const wikis = policy.includeWiki ? this.collectWikis(query, policy.wikiEntityTypes) : [];
+    return { hits, wikis, policy };
+  }
+
+  /** Preload wiki summaries for entities matching query or explicit IDs. */
+  preloadWiki(options: {
+    query?: string;
+    entityIds?: string[];
+    limit?: number;
+  }): WikiSummary[] {
+    const limit = options.limit ?? 10;
+    let entities: ContextGraphEntity[] = [];
+    if (options.entityIds?.length) {
+      entities = options.entityIds
+        .map((id) => this.graph.getEntity(id))
+        .filter(Boolean) as ContextGraphEntity[];
+    } else if (options.query) {
+      entities = this.graph.findByName(options.query);
+    } else {
+      entities = this.graph.listEntities();
+    }
+    return entities
+      .filter((e) => e.wiki)
+      .slice(0, limit)
+      .map((e) => ({ entityId: e.id, name: e.name, type: e.type, wiki: e.wiki! }));
+  }
+
+  private collectWikis(query: string, types?: EntityType[]): WikiSummary[] {
+    const matches = this.graph.findByName(query);
+    const candidates = types ? matches.filter((e) => types.includes(e.type)) : matches;
+    return candidates
+      .filter((e) => e.wiki)
+      .map((e) => ({ entityId: e.id, name: e.name, type: e.type, wiki: e.wiki! }));
   }
 }

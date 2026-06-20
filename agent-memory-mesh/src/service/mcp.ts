@@ -37,9 +37,23 @@ export async function startMcpStdio(cfg: MemoryConfig, engine: MemoryEngine): Pr
         query: z.string().describe("What to look for."),
         k: z.number().int().positive().optional().describe("How many passages (default 8)."),
         filter: z.string().optional().describe("Optional metadata filter, e.g. type = 'proposal'."),
+        policy: z.string().optional().describe("Named retrieval policy (default, proposal-drafting, research, email-context, or custom)."),
       },
     },
-    async ({ query, k, filter }) => {
+    async ({ query, k, filter, policy }) => {
+      if (policy) {
+        const result = await engine.searchWithPolicy(query, policy, {
+          k: k ?? undefined,
+          filter: filter ?? undefined,
+        });
+        const wikiBlock = result.wikis.length
+          ? "\n\n**Entity context:**\n" + result.wikis.map((w) => `- **${w.name}** (${w.type}): ${w.wiki}`).join("\n")
+          : "";
+        const hitsBlock = result.hits.length
+          ? result.hits.map((h) => `- (${h.chunk.notePath}) ${h.chunk.text}`).join("\n")
+          : "No relevant memory found.";
+        return { content: [{ type: "text", text: hitsBlock + wikiBlock }] };
+      }
       const hits = await engine.search(query, k ?? 8, filter);
       const text = hits.length
         ? hits.map((h) => `- (${h.chunk.notePath}) ${h.chunk.text}`).join("\n")
@@ -163,6 +177,44 @@ export async function startMcpStdio(cfg: MemoryConfig, engine: MemoryEngine): Pr
             )
             .join("\n")
         : "No sessions found to consolidate.";
+      return { content: [{ type: "text", text }] };
+    }
+  );
+
+  server.registerTool(
+    "list_policies",
+    {
+      title: "List retrieval policies",
+      description: "Return all available retrieval policies (built-in and custom).",
+      inputSchema: {},
+    },
+    async () => {
+      const policies = engine.listPolicies();
+      const text = policies
+        .map((p) => `**${p.name}**: k=${p.k}${p.filter ? `, filter: ${p.filter}` : ""}${p.boostRecent ? ", boostRecent" : ""}${p.includeWiki ? ", includeWiki" : ""} — ${p.description ?? ""}`)
+        .join("\n");
+      return { content: [{ type: "text", text }] };
+    }
+  );
+
+  server.registerTool(
+    "preload_wiki",
+    {
+      title: "Preload entity wikis",
+      description:
+        "Return wiki summaries for entities in the context graph that match a query or explicit IDs. " +
+        "Use this to inject structured entity knowledge into an agent's context at task start.",
+      inputSchema: {
+        query: z.string().optional().describe("Find entities whose name matches this query."),
+        entityIds: z.array(z.string()).optional().describe("Explicit entity IDs to fetch."),
+        limit: z.number().int().positive().optional().describe("Max wikis to return (default 10)."),
+      },
+    },
+    async ({ query, entityIds, limit }) => {
+      const wikis = engine.preloadWiki({ query, entityIds, limit });
+      const text = wikis.length
+        ? wikis.map((w) => `**${w.name}** (${w.type}):\n${w.wiki}`).join("\n\n")
+        : "No entity wikis found.";
       return { content: [{ type: "text", text }] };
     }
   );

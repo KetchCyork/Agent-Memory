@@ -16,6 +16,8 @@ export interface MemoryConfig {
   workMemoryPath: string;
   /** JSON file path for the context graph (entities + edges). */
   graphPath: string;
+  /** JSON file path for custom retrieval policies. */
+  policiesPath: string;
   ollamaUrl: string;
   embedModel: string;
   /** Bind host. 0.0.0.0 exposes on all interfaces; prefer the tailnet IP/name. */
@@ -37,6 +39,7 @@ export function loadConfig(): MemoryConfig {
     dbPath: env("MEMORY_DB_PATH") || join(base, "memory.lancedb"),
     workMemoryPath: env("WORK_MEMORY_PATH") || join(base, "work-memory.json"),
     graphPath: env("GRAPH_PATH") || join(base, "context-graph.json"),
+    policiesPath: env("POLICIES_PATH") || join(base, "retrieval-policies.json"),
     ollamaUrl: env("OLLAMA_URL", "http://localhost:11434"),
     embedModel: env("EMBED_MODEL", "nomic-embed-text"),
     // Default to loopback for safety; set MEMORY_HOST to the tailnet name to share.
