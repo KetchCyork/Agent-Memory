@@ -12,19 +12,26 @@ import { Embedder } from "../memory/embeddings.js";
 import { MemoryStore, type RetrievalHit } from "../memory/store.js";
 import { Indexer, type IndexResult } from "../memory/indexer.js";
 import { WorkMemoryStore, type WorkMemoryEntry, type WorkMemoryQuery } from "../memory/work-memory.js";
+import { Consolidator, type ConsolidationResult } from "../memory/consolidator.js";
 
-export { type WorkMemoryEntry, type WorkMemoryQuery };
+export { type WorkMemoryEntry, type WorkMemoryQuery, type ConsolidationResult };
 
 export class MemoryEngine {
   private embedder: Embedder;
   private store: MemoryStore;
   private workMemory: WorkMemoryStore;
+  private consolidator: Consolidator;
   private opened = false;
 
   constructor(private cfg: MemoryConfig) {
     this.embedder = new Embedder({ ollamaUrl: cfg.ollamaUrl, model: cfg.embedModel });
     this.store = new MemoryStore(cfg.dbPath);
     this.workMemory = new WorkMemoryStore(cfg.workMemoryPath);
+    this.consolidator = new Consolidator(this.workMemory, {
+      vaultPath: cfg.vaultPath,
+      ollamaUrl: cfg.ollamaUrl,
+      consolidationModel: cfg.consolidationModel || undefined,
+    });
   }
 
   /** Open the store lazily, sizing the table from a probe embedding the first time. */
@@ -66,5 +73,15 @@ export class MemoryEngine {
 
   recordCorrection(sessionId: string, note: string, sourceEntryId?: string): WorkMemoryEntry {
     return this.workMemory.recordCorrection(sessionId, note, sourceEntryId);
+  }
+
+  // Consolidation — synthesise sessions into vault lesson notes.
+
+  async consolidateAll(): Promise<ConsolidationResult[]> {
+    return this.consolidator.consolidateAll();
+  }
+
+  async consolidateSession(sessionId: string): Promise<ConsolidationResult> {
+    return this.consolidator.consolidateSession(sessionId);
   }
 }

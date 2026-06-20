@@ -10,6 +10,7 @@
  *   record_work_memory(sessionId, type, summary, ...) -> recorded entry
  *   record_correction(sessionId, note, sourceEntryId?) -> correction entry
  *   query_work_memory(sessionId?, type?, since?, limit?) -> entries
+ *   consolidate_sessions(sessionId?)      -> lesson notes written to vault
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -116,6 +117,48 @@ export async function startMcpStdio(cfg: MemoryConfig, engine: MemoryEngine): Pr
       const text = entries.length
         ? entries.map((e) => `[${e.timestamp}] ${e.type}: ${e.summary}`).join("\n")
         : "No work memory entries found.";
+      return { content: [{ type: "text", text }] };
+    }
+  );
+
+  server.registerTool(
+    "consolidate_sessions",
+    {
+      title: "Consolidate sessions",
+      description:
+        "Synthesise one or all work memory sessions into concise lesson notes written to the vault. " +
+        "Run this at the end of a session or on a schedule to compress episodic records into lasting knowledge.",
+      inputSchema: {
+        sessionId: z
+          .string()
+          .optional()
+          .describe("Specific session to consolidate. Omit to consolidate all sessions."),
+      },
+    },
+    async ({ sessionId }) => {
+      if (sessionId) {
+        const result = await engine.consolidateSession(sessionId);
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                `Consolidated session "${result.sessionId}" → ${result.lessonPath}\n` +
+                `${result.entryCount} entries, ${result.successCount} successes, ` +
+                `${result.failureCount} failures, ${result.correctionCount} corrections (${result.method})`,
+            },
+          ],
+        };
+      }
+      const results = await engine.consolidateAll();
+      const text = results.length
+        ? results
+            .map(
+              (r) =>
+                `✓ "${r.sessionId}" → ${r.lessonPath} (${r.entryCount} entries, ${r.method})`
+            )
+            .join("\n")
+        : "No sessions found to consolidate.";
       return { content: [{ type: "text", text }] };
     }
   );

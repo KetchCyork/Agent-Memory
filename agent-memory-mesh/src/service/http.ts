@@ -13,6 +13,8 @@
  *   GET  /work-memory  [?sessionId&type&agentId&since&limit]  -> { entries }
  *   POST /work-memory/correction           -> { entry }
  *   GET  /work-memory/session/:id          -> { entries }
+ *   POST /consolidate                      -> { results: ConsolidationResult[] }
+ *   POST /consolidate/:sessionId           -> { result: ConsolidationResult }
  *
  * Auth: if MEMORY_API_KEY is set, every request must send X-Api-Key with it.
  * Bind: set MEMORY_HOST to your tailnet name/IP to share; defaults to loopback.
@@ -103,6 +105,20 @@ export function startHttp(
       if (req.method === "GET" && sessionMatch) {
         const entries = engine.getWorkSession(sessionMatch[1]);
         return send(res, 200, { entries });
+      }
+
+      // Consolidation endpoints
+
+      if (req.method === "POST" && url.pathname === "/consolidate") {
+        const results = await engine.consolidateAll();
+        return send(res, 200, { results });
+      }
+
+      const consolidateMatch = url.pathname.match(/^\/consolidate\/(.+)$/);
+      if (req.method === "POST" && consolidateMatch) {
+        const sessionId = decodeURIComponent(consolidateMatch[1]);
+        const result = await engine.consolidateSession(sessionId);
+        return send(res, 200, { result });
       }
 
       return send(res, 404, { error: "not found" });

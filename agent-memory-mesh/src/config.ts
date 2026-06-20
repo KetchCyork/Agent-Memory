@@ -21,6 +21,11 @@ export interface MemoryConfig {
   port: number;
   /** Optional shared secret required on every request (X-Api-Key header). */
   apiKey: string;
+  /**
+   * Ollama model for LLM-based session synthesis during consolidation.
+   * Leave empty for rule-based synthesis (no LLM required).
+   */
+  consolidationModel: string;
 }
 
 export function loadConfig(): MemoryConfig {
@@ -35,5 +40,6 @@ export function loadConfig(): MemoryConfig {
     host: env("MEMORY_HOST", "127.0.0.1"),
     port: Number(env("MEMORY_PORT", "8377")),
     apiKey: env("MEMORY_API_KEY", ""),
+    consolidationModel: env("CONSOLIDATION_MODEL", ""),
   };
 }

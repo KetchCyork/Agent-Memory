@@ -1,10 +1,14 @@
 /** Main test runner — imports all suites and runs them in order. */
 
 import { runWorkMemoryTests } from "./work-memory.test.js";
+import { runConsolidatorTests } from "./consolidator.test.js";
 
 async function main() {
   let exitCode = 0;
-  const suites = [{ name: "WorkMemory", fn: runWorkMemoryTests }];
+  const suites = [
+    { name: "WorkMemory", fn: runWorkMemoryTests },
+    { name: "Consolidator", fn: runConsolidatorTests },
+  ];
 
   for (const suite of suites) {
     try {
