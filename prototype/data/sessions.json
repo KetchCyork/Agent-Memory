@@ -1,0 +1,24 @@
+[
+  {
+    "id": "sess-1",
+    "title": "Initial ingest of docs for Project Atlas",
+    "timestamp": "2026-06-18T10:00:00Z",
+    "messages": [
+      {"role":"agent","text":"Ingested 42 documents from Google Drive folder 'Atlas'."},
+      {"role":"user","text":"Please summarize key milestones and outstanding risks."},
+      {"role":"agent","text":"Summary: milestones are X, Y, Z. Outstanding risks: access delays, unclear ownership."}
+    ],
+    "metadata": {"corrections":0}
+  },
+  {
+    "id": "sess-2",
+    "title": "Draft outreach email to stakeholders",
+    "timestamp": "2026-06-19T15:30:00Z",
+    "messages": [
+      {"role":"agent","text":"Drafted outreach email with proposed meeting times."},
+      {"role":"user","text":"Change tone to be more formal and add brief agenda."},
+      {"role":"agent","text":"Updated draft: formal tone + agenda included."}
+    ],
+    "metadata": {"corrections":1}
+  }
+]

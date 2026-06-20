@@ -1,0 +1,13 @@
+{
+  "name": "agent-memory-prototype",
+  "version": "0.1.0",
+  "description": "Prototype consolidator, scorer, and retriever for Agent Memory",
+  "main": "consolidator.js",
+  "scripts": {
+    "consolidate": "node consolidator.js",
+    "retrieve": "node retriever.js"
+  },
+  "engines": {
+    "node": ">=14"
+  }
+}
