@@ -11,15 +11,20 @@ import type { MemoryConfig } from "../config.js";
 import { Embedder } from "../memory/embeddings.js";
 import { MemoryStore, type RetrievalHit } from "../memory/store.js";
 import { Indexer, type IndexResult } from "../memory/indexer.js";
+import { WorkMemoryStore, type WorkMemoryEntry, type WorkMemoryQuery } from "../memory/work-memory.js";
+
+export { type WorkMemoryEntry, type WorkMemoryQuery };
 
 export class MemoryEngine {
   private embedder: Embedder;
   private store: MemoryStore;
+  private workMemory: WorkMemoryStore;
   private opened = false;
 
   constructor(private cfg: MemoryConfig) {
     this.embedder = new Embedder({ ollamaUrl: cfg.ollamaUrl, model: cfg.embedModel });
     this.store = new MemoryStore(cfg.dbPath);
+    this.workMemory = new WorkMemoryStore(cfg.workMemoryPath);
   }
 
   /** Open the store lazily, sizing the table from a probe embedding the first time. */
@@ -43,5 +48,23 @@ export class MemoryEngine {
     const res = await indexer.indexAll(onProgress);
     this.opened = true; // indexer opens the store as part of its run
     return res;
+  }
+
+  // Work memory — episodic record of agent actions, outputs, and corrections.
+
+  recordWork(entry: Omit<WorkMemoryEntry, "id" | "timestamp">): WorkMemoryEntry {
+    return this.workMemory.record(entry);
+  }
+
+  queryWork(q: WorkMemoryQuery = {}): WorkMemoryEntry[] {
+    return this.workMemory.query(q);
+  }
+
+  getWorkSession(sessionId: string): WorkMemoryEntry[] {
+    return this.workMemory.getSession(sessionId);
+  }
+
+  recordCorrection(sessionId: string, note: string, sourceEntryId?: string): WorkMemoryEntry {
+    return this.workMemory.recordCorrection(sessionId, note, sourceEntryId);
   }
 }

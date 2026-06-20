@@ -12,6 +12,8 @@ function env(name: string, fallback = ""): string {
 export interface MemoryConfig {
   vaultPath: string;
   dbPath: string;
+  /** JSON file path for the episodic work memory log. */
+  workMemoryPath: string;
   ollamaUrl: string;
   embedModel: string;
   /** Bind host. 0.0.0.0 exposes on all interfaces; prefer the tailnet IP/name. */
@@ -26,6 +28,7 @@ export function loadConfig(): MemoryConfig {
   return {
     vaultPath: env("VAULT_PATH") || join(base, "vault"),
     dbPath: env("MEMORY_DB_PATH") || join(base, "memory.lancedb"),
+    workMemoryPath: env("WORK_MEMORY_PATH") || join(base, "work-memory.json"),
     ollamaUrl: env("OLLAMA_URL", "http://localhost:11434"),
     embedModel: env("EMBED_MODEL", "nomic-embed-text"),
     // Default to loopback for safety; set MEMORY_HOST to the tailnet name to share.

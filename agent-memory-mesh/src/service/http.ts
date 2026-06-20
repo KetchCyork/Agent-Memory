@@ -6,9 +6,13 @@
  * machine, in any language, can reach the shared brain over the tailnet.
  *
  * Endpoints:
- *   GET  /health                      -> { ok: true }
- *   POST /search   { query, k?, filter? }   -> { hits: [...] }
- *   POST /reindex  {}                  -> { notes, chunks }
+ *   GET  /health                           -> { ok: true }
+ *   POST /search   { query, k?, filter? }  -> { hits: [...] }
+ *   POST /reindex  {}                      -> { notes, chunks }
+ *   POST /work-memory  { entry }           -> { entry }
+ *   GET  /work-memory  [?sessionId&type&agentId&since&limit]  -> { entries }
+ *   POST /work-memory/correction           -> { entry }
+ *   GET  /work-memory/session/:id          -> { entries }
  *
  * Auth: if MEMORY_API_KEY is set, every request must send X-Api-Key with it.
  * Bind: set MEMORY_HOST to your tailnet name/IP to share; defaults to loopback.
@@ -32,7 +36,11 @@ async function readJson(req: IncomingMessage): Promise<any> {
   catch { throw new Error("Invalid JSON body"); }
 }
 
-export function startHttp(cfg: MemoryConfig, engine: MemoryEngine): void {
+export function startHttp(
+  cfg: MemoryConfig,
+  engine: MemoryEngine
+): Promise<ReturnType<typeof createServer>> {
+  return new Promise((resolve) => {
   const server = createServer(async (req, res) => {
     try {
       // Simple shared-secret auth, if configured.
@@ -60,6 +68,43 @@ export function startHttp(cfg: MemoryConfig, engine: MemoryEngine): void {
         return send(res, 200, result);
       }
 
+      // Work memory endpoints
+
+      if (req.method === "POST" && url.pathname === "/work-memory") {
+        const body = await readJson(req);
+        if (!body.sessionId) return send(res, 400, { error: "sessionId is required" });
+        if (!body.type) return send(res, 400, { error: "type is required" });
+        if (!body.summary) return send(res, 400, { error: "summary is required" });
+        const entry = engine.recordWork(body);
+        return send(res, 201, { entry });
+      }
+
+      if (req.method === "GET" && url.pathname === "/work-memory") {
+        const q = url.searchParams;
+        const entries = engine.queryWork({
+          sessionId: q.get("sessionId") ?? undefined,
+          type: (q.get("type") as any) ?? undefined,
+          agentId: q.get("agentId") ?? undefined,
+          since: q.get("since") ?? undefined,
+          limit: q.has("limit") ? Number(q.get("limit")) : undefined,
+        });
+        return send(res, 200, { entries });
+      }
+
+      if (req.method === "POST" && url.pathname === "/work-memory/correction") {
+        const body = await readJson(req);
+        if (!body.sessionId) return send(res, 400, { error: "sessionId is required" });
+        if (!body.note) return send(res, 400, { error: "note is required" });
+        const entry = engine.recordCorrection(body.sessionId, body.note, body.sourceEntryId);
+        return send(res, 201, { entry });
+      }
+
+      const sessionMatch = url.pathname.match(/^\/work-memory\/session\/(.+)$/);
+      if (req.method === "GET" && sessionMatch) {
+        const entries = engine.getWorkSession(sessionMatch[1]);
+        return send(res, 200, { entries });
+      }
+
       return send(res, 404, { error: "not found" });
     } catch (err) {
       return send(res, 500, { error: String(err) });
@@ -67,10 +112,13 @@ export function startHttp(cfg: MemoryConfig, engine: MemoryEngine): void {
   });
 
   server.listen(cfg.port, cfg.host, () => {
+    const addr = server.address() as { port: number };
     const where = cfg.host === "127.0.0.1" ? "loopback only" : "shared on the tailnet";
-    console.log(`[http] memory API on http://${cfg.host}:${cfg.port} (${where})`);
+    console.log(`[http] memory API on http://${cfg.host}:${addr.port} (${where})`);
     if (!cfg.apiKey && cfg.host !== "127.0.0.1") {
       console.warn("[http] WARNING: bound beyond loopback with no MEMORY_API_KEY set.");
     }
+    resolve(server);
+  });
   });
 }

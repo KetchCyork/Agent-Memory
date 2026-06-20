@@ -11,7 +11,7 @@ async function main() {
   if (process.argv.includes("--mcp")) {
     await startMcpStdio(cfg, engine);   // stdio: keep stdout clean for the protocol
   } else {
-    startHttp(cfg, engine);
+    await startHttp(cfg, engine);
   }
 }
 main().catch((e) => { console.error(e); process.exit(1); });
