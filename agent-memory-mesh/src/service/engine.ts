@@ -17,8 +17,9 @@ import { Consolidator, type ConsolidationResult } from "../memory/consolidator.j
 import { ContextGraph, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult } from "../memory/context-graph.js";
 import { RetrievalPolicyStore, applyRecencyBoost, type RetrievalPolicy } from "../memory/retrieval-policy.js";
 import { FeedbackStore, applyFeedbackScoring, type FeedbackSignal, type NoteFeedback } from "../memory/feedback.js";
+import { HooksEngine, type HookRule, type HookFire, type HookEvent } from "../memory/hooks.js";
 
-export { type WorkMemoryEntry, type WorkMemoryQuery, type ConsolidationResult, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult, type RetrievalPolicy, type FeedbackSignal, type NoteFeedback };
+export { type WorkMemoryEntry, type WorkMemoryQuery, type ConsolidationResult, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult, type RetrievalPolicy, type FeedbackSignal, type NoteFeedback, type HookRule, type HookFire, type HookEvent };
 
 export interface WikiSummary {
   entityId: string;
@@ -41,6 +42,7 @@ export class MemoryEngine {
   private graph: ContextGraph;
   private policies: RetrievalPolicyStore;
   private feedback: FeedbackStore;
+  private hooks: HooksEngine;
   private opened = false;
 
   constructor(private cfg: MemoryConfig) {
@@ -58,6 +60,7 @@ export class MemoryEngine {
     });
     this.policies = new RetrievalPolicyStore(cfg.policiesPath);
     this.feedback = new FeedbackStore(cfg.feedbackPath);
+    this.hooks = new HooksEngine(cfg.hooksStatePath);
   }
 
   /** Open the store lazily, sizing the table from a probe embedding the first time. */
@@ -70,23 +73,41 @@ export class MemoryEngine {
 
   /** Hybrid (vector + keyword) search. Optional metadata filter, e.g. type/tags. */
   async search(query: string, k = 8, filter?: string): Promise<RetrievalHit[]> {
-    await this.ensureOpen();
-    const qvec = await this.embedder.embed(query);
-    return this.store.retrieve(query, qvec, k, filter);
+    const start = Date.now();
+    try {
+      await this.ensureOpen();
+      const qvec = await this.embedder.embed(query);
+      const hits = await this.store.retrieve(query, qvec, k, filter);
+      const latencyMs = Date.now() - start;
+      this.hooks.fire("search", { query, k, filter, latencyMs, resultCount: hits.length });
+      return hits;
+    } catch (err) {
+      this.hooks.fire("search", { query, k, filter, latencyMs: Date.now() - start, error: String(err) });
+      throw err;
+    }
   }
 
   /** Rebuild the index from the vault. */
   async reindex(onProgress?: (m: string) => void): Promise<IndexResult> {
-    const indexer = new Indexer(this.cfg.vaultPath, this.store, this.embedder);
-    const res = await indexer.indexAll(onProgress);
-    this.opened = true; // indexer opens the store as part of its run
-    return res;
+    const start = Date.now();
+    try {
+      const indexer = new Indexer(this.cfg.vaultPath, this.store, this.embedder);
+      const res = await indexer.indexAll(onProgress);
+      this.opened = true;
+      this.hooks.fire("reindex", { latencyMs: Date.now() - start, notes: res.notes, chunks: res.chunks });
+      return res;
+    } catch (err) {
+      this.hooks.fire("reindex", { latencyMs: Date.now() - start, error: String(err) });
+      throw err;
+    }
   }
 
   // Work memory — episodic record of agent actions, outputs, and corrections.
 
   recordWork(entry: Omit<WorkMemoryEntry, "id" | "timestamp">): WorkMemoryEntry {
-    return this.workMemory.record(entry);
+    const result = this.workMemory.record(entry);
+    this.hooks.fire("work-memory", { type: entry.type, sessionId: entry.sessionId, entryId: result.id });
+    return result;
   }
 
   queryWork(q: WorkMemoryQuery = {}): WorkMemoryEntry[] {
@@ -104,11 +125,15 @@ export class MemoryEngine {
   // Consolidation — synthesise sessions into vault lesson notes.
 
   async consolidateAll(): Promise<ConsolidationResult[]> {
-    return this.consolidator.consolidateAll();
+    const results = await this.consolidator.consolidateAll();
+    this.hooks.fire("consolidation", { sessionCount: results.length });
+    return results;
   }
 
   async consolidateSession(sessionId: string): Promise<ConsolidationResult> {
-    return this.consolidator.consolidateSession(sessionId);
+    const result = await this.consolidator.consolidateSession(sessionId);
+    this.hooks.fire("consolidation", { sessionId, entryCount: result.entryCount });
+    return result;
   }
 
   // Context graph — entities, edges, and LLM-wiki summaries.
@@ -226,9 +251,11 @@ export class MemoryEngine {
     vote: "up" | "down",
     opts: { sessionId?: string; query?: string; note?: string; workMemoryEntryId?: string } = {}
   ): FeedbackSignal {
-    return vote === "up"
+    const signal = vote === "up"
       ? this.feedback.upvote(notePath, opts)
       : this.feedback.downvote(notePath, opts);
+    this.hooks.fire("feedback", { notePath, vote, signalId: signal.id });
+    return signal;
   }
 
   listFeedbackSignals(notePath?: string): FeedbackSignal[] {
@@ -265,6 +292,60 @@ export class MemoryEngine {
 
     if (processedIds.length) this.feedback.markProcessed(processedIds);
     return { processed: processedIds.length, signals };
+  }
+
+  // Hooks / alerting
+
+  addHookRule(input: Omit<HookRule, "id" | "createdAt">): HookRule {
+    return this.hooks.addRule(input);
+  }
+
+  getHookRule(id: string): HookRule | undefined {
+    return this.hooks.getRule(id);
+  }
+
+  listHookRules(): HookRule[] {
+    return this.hooks.listRules();
+  }
+
+  updateHookRule(id: string, patch: Partial<Omit<HookRule, "id" | "createdAt">>): HookRule | undefined {
+    return this.hooks.updateRule(id, patch);
+  }
+
+  removeHookRule(id: string): boolean {
+    return this.hooks.removeRule(id);
+  }
+
+  listHookHistory(ruleId?: string): HookFire[] {
+    return this.hooks.listHistory(ruleId);
+  }
+
+  fireHook(event: HookEvent, payload: Record<string, unknown>): HookFire[] {
+    return this.hooks.fire(event, payload);
+  }
+
+  // Inspect / stats
+
+  getStats(): {
+    workMemory: { total: number; sessions: number };
+    graph: { entities: number; edges: number };
+    feedback: { signals: number; upvotes: number; downvotes: number };
+    policies: { total: number };
+    hooks: { rules: number };
+  } {
+    const entries = this.workMemory.query({});
+    const sessions = new Set(entries.map((e) => e.sessionId)).size;
+    const edges = this.graph.getEdges().length;
+    const signals = this.feedback.listSignals();
+    const upvotes = signals.filter((s) => s.vote === "up").length;
+    const downvotes = signals.filter((s) => s.vote === "down").length;
+    return {
+      workMemory: { total: entries.length, sessions },
+      graph: { entities: this.listEntities().length, edges },
+      feedback: { signals: signals.length, upvotes, downvotes },
+      policies: { total: this.listPolicies().length },
+      hooks: { rules: this.listHookRules().length },
+    };
   }
 
   private collectWikis(query: string, types?: EntityType[]): WikiSummary[] {

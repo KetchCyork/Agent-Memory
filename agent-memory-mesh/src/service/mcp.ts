@@ -359,6 +359,81 @@ export async function startMcpStdio(cfg: MemoryConfig, engine: MemoryEngine): Pr
     }
   );
 
+  server.registerTool(
+    "inspect_stats",
+    {
+      title: "Inspect memory stats",
+      description:
+        "Return aggregate statistics about the current memory state: work memory entry count, " +
+        "graph entity/edge counts, feedback signal counts, policy count, and hook rule count.",
+      inputSchema: {},
+    },
+    async () => {
+      const stats = engine.getStats();
+      const lines = [
+        `Work memory: ${stats.workMemory.total} entries across ${stats.workMemory.sessions} session(s)`,
+        `Graph: ${stats.graph.entities} entities, ${stats.graph.edges} edges`,
+        `Feedback: ${stats.feedback.signals} signals (${stats.feedback.upvotes} up / ${stats.feedback.downvotes} down)`,
+        `Policies: ${stats.policies.total}`,
+        `Hook rules: ${stats.hooks.rules}`,
+      ];
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+  );
+
+  server.registerTool(
+    "add_hook_rule",
+    {
+      title: "Add hook rule",
+      description:
+        "Register an alert rule that fires when a memory event occurs. " +
+        "Supported events: search, reindex, work-memory, consolidation, feedback. " +
+        "The 'log' action writes a line to stderr when triggered.",
+      inputSchema: {
+        name: z.string().describe("Human-readable rule name."),
+        event: z
+          .enum(["search", "reindex", "work-memory", "consolidation", "feedback"])
+          .describe("Event type to listen for."),
+        action: z.enum(["log"]).describe("Action to take when the rule fires."),
+        enabled: z.boolean().optional().describe("Whether the rule is active (default true)."),
+        condition: z
+          .object({
+            minLatencyMs: z.number().optional().describe("Fire only when latency >= this (search/reindex)."),
+            onError: z.boolean().optional().describe("Fire only on errors."),
+            pattern: z.string().optional().describe("Regex pattern — fire only when payload matches."),
+          })
+          .optional()
+          .describe("Optional condition filter."),
+      },
+    },
+    async (input) => {
+      const rule = engine.addHookRule({
+        name: input.name,
+        event: input.event,
+        action: input.action,
+        enabled: input.enabled !== false,
+        condition: input.condition as any,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(rule, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    "list_hook_rules",
+    {
+      title: "List hook rules",
+      description: "List all registered hook/alert rules.",
+      inputSchema: {},
+    },
+    async () => {
+      const rules = engine.listHookRules();
+      const text = rules.length
+        ? rules.map((r) => `[${r.enabled ? "on" : "off"}] ${r.name} — ${r.event} → ${r.action} (${r.id})`).join("\n")
+        : "No hook rules configured.";
+      return { content: [{ type: "text", text }] };
+    }
+  );
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("[mcp] agent-memory-mesh stdio server ready");

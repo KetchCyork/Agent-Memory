@@ -279,6 +279,54 @@ export function startHttp(
         return send(res, 200, { entity });
       }
 
+      // Inspect
+      if (req.method === "GET" && url.pathname === "/inspect/stats") {
+        return send(res, 200, { stats: engine.getStats() });
+      }
+
+      // Hooks
+      if (req.method === "GET" && url.pathname === "/hooks") {
+        return send(res, 200, { rules: engine.listHookRules() });
+      }
+      if (req.method === "POST" && url.pathname === "/hooks") {
+        const body = await readJson(req);
+        if (!body.name) return send(res, 400, { error: "name is required" });
+        if (!body.event) return send(res, 400, { error: "event is required" });
+        if (!body.action) return send(res, 400, { error: "action is required" });
+        const rule = engine.addHookRule({
+          name: body.name,
+          event: body.event,
+          action: body.action,
+          condition: body.condition,
+          enabled: body.enabled !== false,
+        });
+        return send(res, 201, { rule });
+      }
+      const hookIdMatch = url.pathname.match(/^\/hooks\/([^/]+)$/);
+      if (hookIdMatch) {
+        const id = decodeURIComponent(hookIdMatch[1]);
+        if (req.method === "GET") {
+          const rule = engine.getHookRule(id);
+          if (!rule) return send(res, 404, { error: "hook rule not found" });
+          return send(res, 200, { rule });
+        }
+        if (req.method === "PATCH") {
+          const body = await readJson(req);
+          const rule = engine.updateHookRule(id, body);
+          if (!rule) return send(res, 404, { error: "hook rule not found" });
+          return send(res, 200, { rule });
+        }
+        if (req.method === "DELETE") {
+          const ok = engine.removeHookRule(id);
+          return send(res, ok ? 200 : 404, { ok });
+        }
+      }
+      const hookHistoryMatch = url.pathname.match(/^\/hooks\/([^/]+)\/history$/);
+      if (req.method === "GET" && hookHistoryMatch) {
+        const id = decodeURIComponent(hookHistoryMatch[1]);
+        return send(res, 200, { history: engine.listHookHistory(id) });
+      }
+
       return send(res, 404, { error: "not found" });
     } catch (err) {
       return send(res, 500, { error: String(err) });
