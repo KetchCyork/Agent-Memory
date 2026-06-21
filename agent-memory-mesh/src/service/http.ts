@@ -279,6 +279,60 @@ export function startHttp(
         return send(res, 200, { entity });
       }
 
+      // Node registry
+      if (req.method === "POST" && url.pathname === "/nodes/register") {
+        const body = await readJson(req);
+        if (!body.name) return send(res, 400, { error: "name is required" });
+        if (!body.address) return send(res, 400, { error: "address is required" });
+        if (!Array.isArray(body.capabilities)) return send(res, 400, { error: "capabilities (array) is required" });
+        const node = engine.registerNode({ name: body.name, address: body.address, capabilities: body.capabilities, metadata: body.metadata });
+        return send(res, 201, { node });
+      }
+      if (req.method === "GET" && url.pathname === "/nodes") {
+        const q = url.searchParams;
+        const nodes = engine.listNodes({
+          status: (q.get("status") as any) ?? undefined,
+          capability: q.get("capability") ?? undefined,
+        });
+        return send(res, 200, { nodes });
+      }
+      const nodeIdMatch = url.pathname.match(/^\/nodes\/([^/]+)$/);
+      if (nodeIdMatch) {
+        const id = decodeURIComponent(nodeIdMatch[1]);
+        if (req.method === "GET") {
+          const node = engine.getNode(id);
+          if (!node) return send(res, 404, { error: "node not found" });
+          return send(res, 200, { node });
+        }
+        if (req.method === "DELETE") {
+          const ok = engine.removeNode(id);
+          return send(res, ok ? 200 : 404, { ok });
+        }
+      }
+      const heartbeatMatch = url.pathname.match(/^\/nodes\/([^/]+)\/heartbeat$/);
+      if (req.method === "POST" && heartbeatMatch) {
+        const id = decodeURIComponent(heartbeatMatch[1]);
+        const ok = engine.nodeHeartbeat(id);
+        return send(res, ok ? 200 : 404, { ok });
+      }
+      const deregisterMatch = url.pathname.match(/^\/nodes\/([^/]+)\/deregister$/);
+      if (req.method === "POST" && deregisterMatch) {
+        const id = decodeURIComponent(deregisterMatch[1]);
+        const ok = engine.deregisterNode(id);
+        return send(res, ok ? 200 : 404, { ok });
+      }
+
+      // OneDrive connector — list items (requires caller to supply access token)
+      if (req.method === "POST" && url.pathname === "/connectors/onedrive/list") {
+        const { OneDriveConnector } = await import("../connectors/onedrive.js");
+        const body = await readJson(req);
+        if (!body.accessToken) return send(res, 400, { error: "accessToken is required" });
+        if (!body.driveId) return send(res, 400, { error: "driveId is required" });
+        const connector = new OneDriveConnector(body.accessToken);
+        const listing = await connector.listItems(body.driveId, body.folderId ?? null, body.top ?? 50);
+        return send(res, 200, listing);
+      }
+
       return send(res, 404, { error: "not found" });
     } catch (err) {
       return send(res, 500, { error: String(err) });
