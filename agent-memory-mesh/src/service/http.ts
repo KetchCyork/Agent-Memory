@@ -279,6 +279,38 @@ export function startHttp(
         return send(res, 200, { entity });
       }
 
+      // Provenance & traceability endpoints
+      if (req.method === "POST" && url.pathname === "/provenance") {
+        const body = await readJson(req);
+        if (!body.notePath) return send(res, 400, { error: "notePath is required" });
+        if (!body.source) return send(res, 400, { error: "source is required" });
+        const record = engine.recordProvenance(body);
+        return send(res, 201, { record });
+      }
+      if (req.method === "GET" && url.pathname === "/provenance/nodes") {
+        return send(res, 200, { nodes: engine.provenanceSummaryByNode() });
+      }
+      const provenanceNodeMatch = url.pathname.match(/^\/provenance\/nodes\/([^/]+)$/);
+      if (req.method === "GET" && provenanceNodeMatch) {
+        const nodeId = decodeURIComponent(provenanceNodeMatch[1]);
+        return send(res, 200, { records: engine.listProvenanceByNode(nodeId) });
+      }
+      if (req.method === "GET" && url.pathname === "/provenance") {
+        const q = url.searchParams;
+        const records = engine.listProvenance({
+          source: (q.get("source") as any) ?? undefined,
+          since: q.get("since") ?? undefined,
+          remoteNodeId: q.get("remoteNodeId") ?? undefined,
+          notePath: q.get("notePath") ?? undefined,
+        });
+        return send(res, 200, { records });
+      }
+      const provenanceIdMatch = url.pathname.match(/^\/provenance\/([^/]+)$/);
+      if (req.method === "DELETE" && provenanceIdMatch) {
+        const ok = engine.deleteProvenance(decodeURIComponent(provenanceIdMatch[1]));
+        return send(res, ok ? 200 : 404, { ok });
+      }
+
       return send(res, 404, { error: "not found" });
     } catch (err) {
       return send(res, 500, { error: String(err) });
