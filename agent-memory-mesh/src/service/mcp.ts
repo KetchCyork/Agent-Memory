@@ -359,6 +359,58 @@ export async function startMcpStdio(cfg: MemoryConfig, engine: MemoryEngine): Pr
     }
   );
 
+  server.registerTool(
+    "create_snapshot",
+    {
+      title: "Create memory snapshot",
+      description:
+        "Snapshot the current work memory, context graph, and feedback state. " +
+        "Use before risky operations or experiments to enable rollback.",
+      inputSchema: {
+        label: z.string().optional().describe("Human-readable label for this snapshot."),
+      },
+    },
+    async ({ label }) => {
+      const manifest = await engine.createSnapshot(label);
+      return { content: [{ type: "text", text: JSON.stringify(manifest, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    "list_snapshots",
+    {
+      title: "List memory snapshots",
+      description: "List all saved memory snapshots, newest first.",
+      inputSchema: {},
+    },
+    async () => {
+      const snapshots = engine.listSnapshots();
+      const text = snapshots.length
+        ? snapshots.map((s) => `[${s.createdAt}] ${s.id}${s.label ? ` — ${s.label}` : ""}`).join("\n")
+        : "No snapshots found.";
+      return { content: [{ type: "text", text }] };
+    }
+  );
+
+  server.registerTool(
+    "restore_snapshot",
+    {
+      title: "Restore memory snapshot",
+      description:
+        "Restore work memory, context graph, and feedback to a previously saved snapshot. " +
+        "A safety backup is automatically created before the restore.",
+      inputSchema: {
+        id: z.string().describe("Snapshot ID to restore."),
+      },
+    },
+    async ({ id }) => {
+      const manifest = engine.getSnapshot(id);
+      if (!manifest) return { content: [{ type: "text", text: `Snapshot ${id} not found.` }] };
+      await engine.restoreSnapshot(id);
+      return { content: [{ type: "text", text: `Restored snapshot ${id}${manifest.label ? ` (${manifest.label})` : ""}.` }] };
+    }
+  );
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("[mcp] agent-memory-mesh stdio server ready");

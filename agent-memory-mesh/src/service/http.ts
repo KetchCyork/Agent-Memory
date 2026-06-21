@@ -279,6 +279,46 @@ export function startHttp(
         return send(res, 200, { entity });
       }
 
+      // Metrics
+      if (req.method === "GET" && url.pathname === "/metrics") {
+        return send(res, 200, { metrics: engine.getMetrics() });
+      }
+      if (req.method === "POST" && url.pathname === "/metrics/reset") {
+        engine.resetMetrics();
+        return send(res, 200, { ok: true });
+      }
+
+      // Snapshots
+      if (req.method === "POST" && url.pathname === "/snapshots") {
+        const body = await readJson(req);
+        const manifest = await engine.createSnapshot(body?.label);
+        return send(res, 201, { manifest });
+      }
+      if (req.method === "GET" && url.pathname === "/snapshots") {
+        return send(res, 200, { snapshots: engine.listSnapshots() });
+      }
+      const snapIdMatch = url.pathname.match(/^\/snapshots\/([^/]+)$/);
+      if (snapIdMatch) {
+        const id = decodeURIComponent(snapIdMatch[1]);
+        if (req.method === "GET") {
+          const manifest = engine.getSnapshot(id);
+          if (!manifest) return send(res, 404, { error: "snapshot not found" });
+          return send(res, 200, { manifest });
+        }
+        if (req.method === "DELETE") {
+          const ok = engine.deleteSnapshot(id);
+          return send(res, 200, { ok });
+        }
+      }
+      const snapRestoreMatch = url.pathname.match(/^\/snapshots\/([^/]+)\/restore$/);
+      if (req.method === "POST" && snapRestoreMatch) {
+        const id = decodeURIComponent(snapRestoreMatch[1]);
+        const manifest = engine.getSnapshot(id);
+        if (!manifest) return send(res, 404, { error: "snapshot not found" });
+        await engine.restoreSnapshot(id);
+        return send(res, 200, { ok: true });
+      }
+
       return send(res, 404, { error: "not found" });
     } catch (err) {
       return send(res, 500, { error: String(err) });

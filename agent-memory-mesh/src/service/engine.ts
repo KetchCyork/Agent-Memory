@@ -17,8 +17,10 @@ import { Consolidator, type ConsolidationResult } from "../memory/consolidator.j
 import { ContextGraph, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult } from "../memory/context-graph.js";
 import { RetrievalPolicyStore, applyRecencyBoost, type RetrievalPolicy } from "../memory/retrieval-policy.js";
 import { FeedbackStore, applyFeedbackScoring, type FeedbackSignal, type NoteFeedback } from "../memory/feedback.js";
+import { SnapshotStore, type SnapshotManifest } from "../memory/snapshots.js";
+import { metrics, type MetricsSnapshot } from "./metrics.js";
 
-export { type WorkMemoryEntry, type WorkMemoryQuery, type ConsolidationResult, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult, type RetrievalPolicy, type FeedbackSignal, type NoteFeedback };
+export { type WorkMemoryEntry, type WorkMemoryQuery, type ConsolidationResult, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult, type RetrievalPolicy, type FeedbackSignal, type NoteFeedback, type SnapshotManifest, type MetricsSnapshot };
 
 export interface WikiSummary {
   entityId: string;
@@ -41,6 +43,7 @@ export class MemoryEngine {
   private graph: ContextGraph;
   private policies: RetrievalPolicyStore;
   private feedback: FeedbackStore;
+  private snapshots: SnapshotStore;
   private opened = false;
 
   constructor(private cfg: MemoryConfig) {
@@ -58,6 +61,7 @@ export class MemoryEngine {
     });
     this.policies = new RetrievalPolicyStore(cfg.policiesPath);
     this.feedback = new FeedbackStore(cfg.feedbackPath);
+    this.snapshots = new SnapshotStore(cfg.snapshotsDir);
   }
 
   /** Open the store lazily, sizing the table from a probe embedding the first time. */
@@ -70,23 +74,40 @@ export class MemoryEngine {
 
   /** Hybrid (vector + keyword) search. Optional metadata filter, e.g. type/tags. */
   async search(query: string, k = 8, filter?: string): Promise<RetrievalHit[]> {
-    await this.ensureOpen();
-    const qvec = await this.embedder.embed(query);
-    return this.store.retrieve(query, qvec, k, filter);
+    const start = Date.now();
+    try {
+      await this.ensureOpen();
+      const qvec = await this.embedder.embed(query);
+      const hits = await this.store.retrieve(query, qvec, k, filter);
+      metrics.recordSearch(Date.now() - start);
+      return hits;
+    } catch (err) {
+      metrics.recordSearch(Date.now() - start, true);
+      throw err;
+    }
   }
 
   /** Rebuild the index from the vault. */
   async reindex(onProgress?: (m: string) => void): Promise<IndexResult> {
-    const indexer = new Indexer(this.cfg.vaultPath, this.store, this.embedder);
-    const res = await indexer.indexAll(onProgress);
-    this.opened = true; // indexer opens the store as part of its run
-    return res;
+    const start = Date.now();
+    try {
+      const indexer = new Indexer(this.cfg.vaultPath, this.store, this.embedder);
+      const res = await indexer.indexAll(onProgress);
+      this.opened = true;
+      metrics.recordIndex(Date.now() - start);
+      return res;
+    } catch (err) {
+      metrics.recordIndex(Date.now() - start, true);
+      throw err;
+    }
   }
 
   // Work memory — episodic record of agent actions, outputs, and corrections.
 
   recordWork(entry: Omit<WorkMemoryEntry, "id" | "timestamp">): WorkMemoryEntry {
-    return this.workMemory.record(entry);
+    const result = this.workMemory.record(entry);
+    metrics.recordWorkMemory();
+    return result;
   }
 
   queryWork(q: WorkMemoryQuery = {}): WorkMemoryEntry[] {
@@ -98,17 +119,23 @@ export class MemoryEngine {
   }
 
   recordCorrection(sessionId: string, note: string, sourceEntryId?: string): WorkMemoryEntry {
-    return this.workMemory.recordCorrection(sessionId, note, sourceEntryId);
+    const result = this.workMemory.recordCorrection(sessionId, note, sourceEntryId);
+    metrics.recordWorkMemory();
+    return result;
   }
 
   // Consolidation — synthesise sessions into vault lesson notes.
 
   async consolidateAll(): Promise<ConsolidationResult[]> {
-    return this.consolidator.consolidateAll();
+    const results = await this.consolidator.consolidateAll();
+    results.forEach(() => metrics.recordConsolidation());
+    return results;
   }
 
   async consolidateSession(sessionId: string): Promise<ConsolidationResult> {
-    return this.consolidator.consolidateSession(sessionId);
+    const result = await this.consolidator.consolidateSession(sessionId);
+    metrics.recordConsolidation();
+    return result;
   }
 
   // Context graph — entities, edges, and LLM-wiki summaries.
@@ -226,9 +253,11 @@ export class MemoryEngine {
     vote: "up" | "down",
     opts: { sessionId?: string; query?: string; note?: string; workMemoryEntryId?: string } = {}
   ): FeedbackSignal {
-    return vote === "up"
+    const signal = vote === "up"
       ? this.feedback.upvote(notePath, opts)
       : this.feedback.downvote(notePath, opts);
+    metrics.recordFeedback();
+    return signal;
   }
 
   listFeedbackSignals(notePath?: string): FeedbackSignal[] {
@@ -265,6 +294,43 @@ export class MemoryEngine {
 
     if (processedIds.length) this.feedback.markProcessed(processedIds);
     return { processed: processedIds.length, signals };
+  }
+
+  // Metrics
+
+  getMetrics(): MetricsSnapshot {
+    return metrics.snapshot();
+  }
+
+  resetMetrics(): void {
+    metrics.reset();
+  }
+
+  // Snapshots
+
+  async createSnapshot(label?: string): Promise<SnapshotManifest> {
+    return this.snapshots.create({
+      workMemoryPath: this.cfg.workMemoryPath,
+      graphPath: this.cfg.graphPath,
+      feedbackPath: this.cfg.feedbackPath,
+      label,
+    });
+  }
+
+  listSnapshots(): SnapshotManifest[] {
+    return this.snapshots.list();
+  }
+
+  getSnapshot(id: string): SnapshotManifest | undefined {
+    return this.snapshots.get(id);
+  }
+
+  async restoreSnapshot(id: string): Promise<void> {
+    return this.snapshots.restore(id);
+  }
+
+  deleteSnapshot(id: string): boolean {
+    return this.snapshots.delete(id);
   }
 
   private collectWikis(query: string, types?: EntityType[]): WikiSummary[] {
