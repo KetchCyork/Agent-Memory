@@ -11,6 +11,8 @@
  *   record_correction(sessionId, note, sourceEntryId?) -> correction entry
  *   query_work_memory(sessionId?, type?, since?, limit?) -> entries
  *   consolidate_sessions(sessionId?)      -> lesson notes written to vault
+ *   submit_feedback(notePath, vote, ...)  -> feedback signal recorded
+ *   process_corrections()                 -> convert work memory corrections to downvotes
  *   upsert_entity(name, type, ...)        -> entity in context graph
  *   add_graph_edge(fromId, toId, relation) -> edge in context graph
  *   query_graph_entities(type?, name?)    -> entity list
@@ -178,6 +180,60 @@ export async function startMcpStdio(cfg: MemoryConfig, engine: MemoryEngine): Pr
             .join("\n")
         : "No sessions found to consolidate.";
       return { content: [{ type: "text", text }] };
+    }
+  );
+
+  server.registerTool(
+    "submit_feedback",
+    {
+      title: "Submit retrieval feedback",
+      description:
+        "Upvote or downvote a vault note to improve future retrieval quality. " +
+        "Downvote notes that contained wrong or unhelpful information; upvote notes that were accurate and useful.",
+      inputSchema: {
+        notePath: z.string().describe("Vault-relative path of the note to rate."),
+        vote: z.enum(["up", "down"]).describe("'up' if the note was helpful, 'down' if it was wrong or irrelevant."),
+        sessionId: z.string().optional().describe("Session this feedback belongs to."),
+        query: z.string().optional().describe("The query that surfaced this note."),
+        note: z.string().optional().describe("Optional free-text reason for the vote."),
+      },
+    },
+    async ({ notePath, vote, sessionId, query, note }) => {
+      const signal = engine.submitFeedback(notePath, vote, { sessionId, query, note });
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Feedback recorded: ${vote === "up" ? "👍" : "👎"} ${notePath} (signal id: ${signal.id})`,
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "process_corrections",
+    {
+      title: "Process work memory corrections",
+      description:
+        "Scan unprocessed correction entries in work memory and convert them into downvote signals. " +
+        "Correction entries with args.notePaths trigger automatic downvotes on those notes. " +
+        "Run this after a session to apply corrections to retrieval quality.",
+      inputSchema: {},
+    },
+    async () => {
+      const result = engine.processCorrections();
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              result.processed === 0
+                ? "No unprocessed corrections found."
+                : `Processed ${result.processed} correction(s), created ${result.signals.length} downvote signal(s).`,
+          },
+        ],
+      };
     }
   );
 

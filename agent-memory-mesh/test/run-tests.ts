@@ -4,6 +4,7 @@ import { runWorkMemoryTests } from "./work-memory.test.js";
 import { runConsolidatorTests } from "./consolidator.test.js";
 import { runContextGraphTests } from "./context-graph.test.js";
 import { runRetrievalPolicyTests } from "./retrieval-policy.test.js";
+import { runFeedbackTests } from "./feedback.test.js";
 
 async function main() {
   let exitCode = 0;
@@ -12,6 +13,7 @@ async function main() {
     { name: "Consolidator", fn: runConsolidatorTests },
     { name: "ContextGraph", fn: runContextGraphTests },
     { name: "RetrievalPolicy", fn: runRetrievalPolicyTests },
+    { name: "Feedback", fn: runFeedbackTests },
   ];
 
   for (const suite of suites) {

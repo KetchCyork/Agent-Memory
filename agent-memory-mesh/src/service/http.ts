@@ -17,6 +17,11 @@
  *   POST /policies                         -> { policy }
  *   DELETE /policies/:name                 -> { ok }
  *   POST /wiki/preload  { query?, entityIds?, limit? }  -> { wikis }
+ *   POST /feedback/upvote   { notePath, sessionId?, query?, note? }   -> { signal }
+ *   POST /feedback/downvote { notePath, sessionId?, query?, note? }   -> { signal }
+ *   POST /feedback/process  {}             -> { processed, signals }
+ *   GET  /feedback/signals[?notePath=]     -> { signals }
+ *   GET  /feedback/summary                 -> { topUpvoted, topDownvoted, totalSignals }
  *   POST /consolidate                      -> { results: ConsolidationResult[] }
  *   POST /consolidate/:sessionId           -> { result: ConsolidationResult }
  *   POST /graph/entities                   -> { entity }
@@ -162,6 +167,36 @@ export function startHttp(
       if (req.method === "GET" && sessionMatch) {
         const entries = engine.getWorkSession(sessionMatch[1]);
         return send(res, 200, { entries });
+      }
+
+      // Feedback loop endpoints
+
+      if (req.method === "POST" && (url.pathname === "/feedback/upvote" || url.pathname === "/feedback/downvote")) {
+        const body = await readJson(req);
+        if (!body.notePath) return send(res, 400, { error: "notePath is required" });
+        const vote = url.pathname.endsWith("upvote") ? "up" : "down";
+        const signal = engine.submitFeedback(body.notePath, vote, {
+          sessionId: body.sessionId,
+          query: body.query,
+          note: body.note,
+          workMemoryEntryId: body.workMemoryEntryId,
+        });
+        return send(res, 201, { signal });
+      }
+
+      if (req.method === "POST" && url.pathname === "/feedback/process") {
+        const result = engine.processCorrections();
+        return send(res, 200, result);
+      }
+
+      if (req.method === "GET" && url.pathname === "/feedback/signals") {
+        const notePath = url.searchParams.get("notePath") ?? undefined;
+        const signals = engine.listFeedbackSignals(notePath);
+        return send(res, 200, { signals });
+      }
+
+      if (req.method === "GET" && url.pathname === "/feedback/summary") {
+        return send(res, 200, engine.getFeedbackSummary());
       }
 
       // Consolidation endpoints

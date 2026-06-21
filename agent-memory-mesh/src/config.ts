@@ -18,6 +18,8 @@ export interface MemoryConfig {
   graphPath: string;
   /** JSON file path for custom retrieval policies. */
   policiesPath: string;
+  /** JSON file path for per-note feedback signals and scores. */
+  feedbackPath: string;
   ollamaUrl: string;
   embedModel: string;
   /** Bind host. 0.0.0.0 exposes on all interfaces; prefer the tailnet IP/name. */
@@ -40,6 +42,7 @@ export function loadConfig(): MemoryConfig {
     workMemoryPath: env("WORK_MEMORY_PATH") || join(base, "work-memory.json"),
     graphPath: env("GRAPH_PATH") || join(base, "context-graph.json"),
     policiesPath: env("POLICIES_PATH") || join(base, "retrieval-policies.json"),
+    feedbackPath: env("FEEDBACK_PATH") || join(base, "feedback.json"),
     ollamaUrl: env("OLLAMA_URL", "http://localhost:11434"),
     embedModel: env("EMBED_MODEL", "nomic-embed-text"),
     // Default to loopback for safety; set MEMORY_HOST to the tailnet name to share.

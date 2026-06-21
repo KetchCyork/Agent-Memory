@@ -16,8 +16,9 @@ import { WorkMemoryStore, type WorkMemoryEntry, type WorkMemoryQuery } from "../
 import { Consolidator, type ConsolidationResult } from "../memory/consolidator.js";
 import { ContextGraph, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult } from "../memory/context-graph.js";
 import { RetrievalPolicyStore, applyRecencyBoost, type RetrievalPolicy } from "../memory/retrieval-policy.js";
+import { FeedbackStore, applyFeedbackScoring, type FeedbackSignal, type NoteFeedback } from "../memory/feedback.js";
 
-export { type WorkMemoryEntry, type WorkMemoryQuery, type ConsolidationResult, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult, type RetrievalPolicy };
+export { type WorkMemoryEntry, type WorkMemoryQuery, type ConsolidationResult, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult, type RetrievalPolicy, type FeedbackSignal, type NoteFeedback };
 
 export interface WikiSummary {
   entityId: string;
@@ -39,6 +40,7 @@ export class MemoryEngine {
   private consolidator: Consolidator;
   private graph: ContextGraph;
   private policies: RetrievalPolicyStore;
+  private feedback: FeedbackStore;
   private opened = false;
 
   constructor(private cfg: MemoryConfig) {
@@ -55,6 +57,7 @@ export class MemoryEngine {
       wikiModel: cfg.consolidationModel || undefined,
     });
     this.policies = new RetrievalPolicyStore(cfg.policiesPath);
+    this.feedback = new FeedbackStore(cfg.feedbackPath);
   }
 
   /** Open the store lazily, sizing the table from a probe embedding the first time. */
@@ -188,6 +191,7 @@ export class MemoryEngine {
     const qvec = await this.embedder.embed(query);
     let hits = await this.store.retrieve(query, qvec, policy.k, policy.filter);
     if (policy.boostRecent) hits = applyRecencyBoost(hits, policy.boostRecentFactor);
+    hits = applyFeedbackScoring(hits, this.feedback);
     const wikis = policy.includeWiki ? this.collectWikis(query, policy.wikiEntityTypes) : [];
     return { hits, wikis, policy };
   }
@@ -213,6 +217,54 @@ export class MemoryEngine {
       .filter((e) => e.wiki)
       .slice(0, limit)
       .map((e) => ({ entityId: e.id, name: e.name, type: e.type, wiki: e.wiki! }));
+  }
+
+  // Feedback loop
+
+  submitFeedback(
+    notePath: string,
+    vote: "up" | "down",
+    opts: { sessionId?: string; query?: string; note?: string; workMemoryEntryId?: string } = {}
+  ): FeedbackSignal {
+    return vote === "up"
+      ? this.feedback.upvote(notePath, opts)
+      : this.feedback.downvote(notePath, opts);
+  }
+
+  listFeedbackSignals(notePath?: string): FeedbackSignal[] {
+    return this.feedback.listSignals(notePath);
+  }
+
+  getFeedbackSummary(): ReturnType<FeedbackStore["summary"]> {
+    return this.feedback.summary();
+  }
+
+  /**
+   * Scan unprocessed work memory correction entries and convert them into
+   * downvote signals. A correction entry is processable if it carries
+   * args.notePaths (string[]) pointing to the vault notes that were unhelpful.
+   */
+  processCorrections(): { processed: number; signals: FeedbackSignal[] } {
+    const corrections = this.workMemory.query({ type: "correction" });
+    const unprocessed = corrections.filter((e) => !this.feedback.isProcessed(e.id));
+    const signals: FeedbackSignal[] = [];
+    const processedIds: string[] = [];
+
+    for (const entry of unprocessed) {
+      const notePaths: string[] = (entry.args?.notePaths as string[]) ?? [];
+      for (const notePath of notePaths) {
+        const signal = this.feedback.downvote(notePath, {
+          sessionId: entry.sessionId,
+          note: entry.correctionNote ?? entry.summary,
+          workMemoryEntryId: entry.id,
+        });
+        signals.push(signal);
+      }
+      processedIds.push(entry.id);
+    }
+
+    if (processedIds.length) this.feedback.markProcessed(processedIds);
+    return { processed: processedIds.length, signals };
   }
 
   private collectWikis(query: string, types?: EntityType[]): WikiSummary[] {
