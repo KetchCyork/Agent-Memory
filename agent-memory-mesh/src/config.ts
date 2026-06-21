@@ -32,6 +32,26 @@ export interface MemoryConfig {
    * Leave empty for rule-based synthesis (no LLM required).
    */
   consolidationModel: string;
+  /** JSON file path for per-note access scores and decay tracking. */
+  scoringPath: string;
+  /** Enable exponential time-decay on memory chunk scores. */
+  decayEnabled: boolean;
+  /** Half-life in days for the decay formula (score halves every N days). */
+  decayHalfLifeDays: number;
+  /** Enable LRU in-memory cache for search results. */
+  searchCacheEnabled: boolean;
+  /** Maximum number of search results to cache. */
+  searchCacheSize: number;
+  /** Cache TTL in milliseconds. */
+  searchCacheTtlMs: number;
+  /** Directory for memory state snapshots. */
+  snapshotsDir: string;
+  /** JSON file path for provenance records. */
+  provenancePath: string;
+  /** JSON file path for hook rules and alerts. */
+  hooksStatePath: string;
+  /** JSON file path for remote node registry. */
+  nodeRegistryPath: string;
 }
 
 export function loadConfig(): MemoryConfig {
@@ -50,5 +70,15 @@ export function loadConfig(): MemoryConfig {
     port: Number(env("MEMORY_PORT", "8377")),
     apiKey: env("MEMORY_API_KEY", ""),
     consolidationModel: env("CONSOLIDATION_MODEL", ""),
+    scoringPath: env("SCORING_PATH") || join(base, "scoring.json"),
+    decayEnabled: env("DECAY_ENABLED") === "true",
+    decayHalfLifeDays: Number(env("DECAY_HALF_LIFE_DAYS", "30")),
+    searchCacheEnabled: env("SEARCH_CACHE_ENABLED") !== "false",
+    searchCacheSize: Number(env("SEARCH_CACHE_SIZE", "100")),
+    searchCacheTtlMs: Number(env("SEARCH_CACHE_TTL_MS", "60000")),
+    snapshotsDir: env("SNAPSHOTS_DIR") || join(base, "snapshots"),
+    provenancePath: env("PROVENANCE_PATH") || join(base, "provenance.json"),
+    hooksStatePath: env("HOOKS_STATE_PATH") || join(base, "hooks.json"),
+    nodeRegistryPath: env("NODE_REGISTRY_PATH") || join(base, "nodes.json"),
   };
 }

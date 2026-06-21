@@ -17,8 +17,10 @@ import { Consolidator, type ConsolidationResult } from "../memory/consolidator.j
 import { ContextGraph, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult } from "../memory/context-graph.js";
 import { RetrievalPolicyStore, applyRecencyBoost, type RetrievalPolicy } from "../memory/retrieval-policy.js";
 import { FeedbackStore, applyFeedbackScoring, type FeedbackSignal, type NoteFeedback } from "../memory/feedback.js";
+import { ScoringStore, type ChunkScore } from "../memory/scoring.js";
+import { LruCache, cacheKey } from "../memory/cache.js";
 
-export { type WorkMemoryEntry, type WorkMemoryQuery, type ConsolidationResult, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult, type RetrievalPolicy, type FeedbackSignal, type NoteFeedback };
+export { type WorkMemoryEntry, type WorkMemoryQuery, type ConsolidationResult, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult, type RetrievalPolicy, type FeedbackSignal, type NoteFeedback, type ChunkScore };
 
 export interface WikiSummary {
   entityId: string;
@@ -41,6 +43,8 @@ export class MemoryEngine {
   private graph: ContextGraph;
   private policies: RetrievalPolicyStore;
   private feedback: FeedbackStore;
+  private scoring: ScoringStore;
+  private searchCache: LruCache<RetrievalHit[]>;
   private opened = false;
 
   constructor(private cfg: MemoryConfig) {
@@ -58,6 +62,8 @@ export class MemoryEngine {
     });
     this.policies = new RetrievalPolicyStore(cfg.policiesPath);
     this.feedback = new FeedbackStore(cfg.feedbackPath);
+    this.scoring = new ScoringStore(cfg.scoringPath);
+    this.searchCache = new LruCache<RetrievalHit[]>(cfg.searchCacheSize, cfg.searchCacheTtlMs);
   }
 
   /** Open the store lazily, sizing the table from a probe embedding the first time. */
@@ -68,11 +74,24 @@ export class MemoryEngine {
     this.opened = true;
   }
 
+  private get scoringCfg() {
+    return { decayEnabled: this.cfg.decayEnabled, decayHalfLifeDays: this.cfg.decayHalfLifeDays, minScore: 0.05 };
+  }
+
   /** Hybrid (vector + keyword) search. Optional metadata filter, e.g. type/tags. */
   async search(query: string, k = 8, filter?: string): Promise<RetrievalHit[]> {
+    const key = cacheKey(query, k, filter);
+    if (this.cfg.searchCacheEnabled) {
+      const cached = this.searchCache.get(key);
+      if (cached) return cached;
+    }
     await this.ensureOpen();
     const qvec = await this.embedder.embed(query);
-    return this.store.retrieve(query, qvec, k, filter);
+    let hits = await this.store.retrieve(query, qvec, k, filter);
+    hits.forEach((h) => this.scoring.recordAccess(h.chunk.notePath));
+    hits = this.scoring.applyDecayScores(hits, this.scoringCfg);
+    if (this.cfg.searchCacheEnabled) this.searchCache.set(key, hits);
+    return hits;
   }
 
   /** Rebuild the index from the vault. */
@@ -179,7 +198,7 @@ export class MemoryEngine {
     return this.policies.delete(name);
   }
 
-  /** Search using a named policy (or "default"). Applies recency boost + wiki preload. */
+  /** Search using a named policy (or "default"). Applies recency boost + feedback scoring + decay. */
   async searchWithPolicy(
     query: string,
     policyName = "default",
@@ -187,11 +206,21 @@ export class MemoryEngine {
   ): Promise<PolicySearchResult> {
     const base = this.policies.get(policyName) ?? this.policies.get("default")!;
     const policy: RetrievalPolicy = { ...base, ...overrides };
+    const key = cacheKey(query, policy.k, policy.filter, policyName);
+    if (this.cfg.searchCacheEnabled) {
+      const cached = this.searchCache.get(key);
+      if (cached) {
+        const wikis = policy.includeWiki ? this.collectWikis(query, policy.wikiEntityTypes) : [];
+        return { hits: cached, wikis, policy };
+      }
+    }
     await this.ensureOpen();
     const qvec = await this.embedder.embed(query);
     let hits = await this.store.retrieve(query, qvec, policy.k, policy.filter);
     if (policy.boostRecent) hits = applyRecencyBoost(hits, policy.boostRecentFactor);
     hits = applyFeedbackScoring(hits, this.feedback);
+    hits = this.scoring.applyDecayScores(hits, this.scoringCfg);
+    if (this.cfg.searchCacheEnabled) this.searchCache.set(key, hits);
     const wikis = policy.includeWiki ? this.collectWikis(query, policy.wikiEntityTypes) : [];
     return { hits, wikis, policy };
   }
@@ -265,6 +294,26 @@ export class MemoryEngine {
 
     if (processedIds.length) this.feedback.markProcessed(processedIds);
     return { processed: processedIds.length, signals };
+  }
+
+  // Scoring & decay
+
+  getChunkScore(notePath: string): number {
+    return this.scoring.getDecayedScore(notePath, this.scoringCfg);
+  }
+
+  listChunkScores(): ChunkScore[] {
+    return this.scoring.listScores();
+  }
+
+  // Search cache
+
+  clearSearchCache(): void {
+    this.searchCache.clear();
+  }
+
+  searchCacheStats() {
+    return this.searchCache.stats();
   }
 
   private collectWikis(query: string, types?: EntityType[]): WikiSummary[] {

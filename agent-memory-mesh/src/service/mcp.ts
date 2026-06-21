@@ -359,6 +359,21 @@ export async function startMcpStdio(cfg: MemoryConfig, engine: MemoryEngine): Pr
     }
   );
 
+  server.registerTool(
+    "get_chunk_score",
+    {
+      title: "Get chunk decay score",
+      description: "Get the time-decay relevance score for a vault note. Returns 1.0 if decay is disabled or note has never been accessed.",
+      inputSchema: {
+        notePath: z.string().describe("Vault-relative note path."),
+      },
+    },
+    async ({ notePath }) => {
+      const score = engine.getChunkScore(notePath);
+      return { content: [{ type: "text", text: `Decay score for ${notePath}: ${score.toFixed(4)}` }] };
+    }
+  );
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("[mcp] agent-memory-mesh stdio server ready");
