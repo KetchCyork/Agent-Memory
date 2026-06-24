@@ -279,6 +279,28 @@ export function startHttp(
         return send(res, 200, { entity });
       }
 
+      // Scoring & decay endpoints
+      if (req.method === "GET" && url.pathname === "/scoring/scores") {
+        const notePath = url.searchParams.get("notePath");
+        if (notePath) return send(res, 200, { score: engine.getChunkScore(notePath) });
+        return send(res, 200, { scores: engine.listChunkScores() });
+      }
+      if (req.method === "GET" && url.pathname === "/scoring/summary") {
+        const scores = engine.listChunkScores();
+        const avg = scores.length ? scores.reduce((s, c) => s + c.score, 0) / scores.length : 0;
+        const below50 = scores.filter((c) => c.score < 0.5).length;
+        return send(res, 200, { totalNotes: scores.length, avgScore: avg, decayedBelow50Pct: below50 });
+      }
+
+      // Search cache endpoints
+      if (req.method === "DELETE" && url.pathname === "/cache") {
+        engine.clearSearchCache();
+        return send(res, 200, { ok: true });
+      }
+      if (req.method === "GET" && url.pathname === "/cache/stats") {
+        return send(res, 200, engine.searchCacheStats());
+      }
+
       return send(res, 404, { error: "not found" });
     } catch (err) {
       return send(res, 500, { error: String(err) });

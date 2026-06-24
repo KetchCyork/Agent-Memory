@@ -5,6 +5,8 @@ import { runConsolidatorTests } from "./consolidator.test.js";
 import { runContextGraphTests } from "./context-graph.test.js";
 import { runRetrievalPolicyTests } from "./retrieval-policy.test.js";
 import { runFeedbackTests } from "./feedback.test.js";
+import { runScoringTests } from "./scoring.test.js";
+import { runCacheTests } from "./cache.test.js";
 
 async function main() {
   let exitCode = 0;
@@ -14,6 +16,8 @@ async function main() {
     { name: "ContextGraph", fn: runContextGraphTests },
     { name: "RetrievalPolicy", fn: runRetrievalPolicyTests },
     { name: "Feedback", fn: runFeedbackTests },
+    { name: "Scoring", fn: runScoringTests },
+    { name: "Cache", fn: runCacheTests },
   ];
 
   for (const suite of suites) {
