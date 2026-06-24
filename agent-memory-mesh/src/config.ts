@@ -32,6 +32,8 @@ export interface MemoryConfig {
    * Leave empty for rule-based synthesis (no LLM required).
    */
   consolidationModel: string;
+  /** Directory for memory state snapshots. */
+  snapshotsDir: string;
 }
 
 export function loadConfig(): MemoryConfig {
@@ -50,5 +52,6 @@ export function loadConfig(): MemoryConfig {
     port: Number(env("MEMORY_PORT", "8377")),
     apiKey: env("MEMORY_API_KEY", ""),
     consolidationModel: env("CONSOLIDATION_MODEL", ""),
+    snapshotsDir: env("SNAPSHOTS_DIR") || join(base, "snapshots"),
   };
 }
