@@ -17,8 +17,9 @@ import { Consolidator, type ConsolidationResult } from "../memory/consolidator.j
 import { ContextGraph, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult } from "../memory/context-graph.js";
 import { RetrievalPolicyStore, applyRecencyBoost, type RetrievalPolicy } from "../memory/retrieval-policy.js";
 import { FeedbackStore, applyFeedbackScoring, type FeedbackSignal, type NoteFeedback } from "../memory/feedback.js";
+import { NodeRegistry, type MeshNode, type NodeRegistration, type NodeStatus } from "../memory/node-registry.js";
 
-export { type WorkMemoryEntry, type WorkMemoryQuery, type ConsolidationResult, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult, type RetrievalPolicy, type FeedbackSignal, type NoteFeedback };
+export { type WorkMemoryEntry, type WorkMemoryQuery, type ConsolidationResult, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult, type RetrievalPolicy, type FeedbackSignal, type NoteFeedback, type MeshNode, type NodeStatus };
 
 export interface WikiSummary {
   entityId: string;
@@ -41,6 +42,7 @@ export class MemoryEngine {
   private graph: ContextGraph;
   private policies: RetrievalPolicyStore;
   private feedback: FeedbackStore;
+  private nodeRegistry: NodeRegistry;
   private opened = false;
 
   constructor(private cfg: MemoryConfig) {
@@ -58,6 +60,7 @@ export class MemoryEngine {
     });
     this.policies = new RetrievalPolicyStore(cfg.policiesPath);
     this.feedback = new FeedbackStore(cfg.feedbackPath);
+    this.nodeRegistry = new NodeRegistry(cfg.nodeRegistryPath);
   }
 
   /** Open the store lazily, sizing the table from a probe embedding the first time. */
@@ -265,6 +268,40 @@ export class MemoryEngine {
 
     if (processedIds.length) this.feedback.markProcessed(processedIds);
     return { processed: processedIds.length, signals };
+  }
+
+  // Node registry — mesh node discovery and heartbeat
+
+  registerNode(input: NodeRegistration): MeshNode {
+    return this.nodeRegistry.register(input);
+  }
+
+  getNode(id: string): MeshNode | undefined {
+    return this.nodeRegistry.get(id);
+  }
+
+  getNodeByName(name: string): MeshNode | undefined {
+    return this.nodeRegistry.getByName(name);
+  }
+
+  listNodes(filter?: { status?: NodeStatus; capability?: string }): MeshNode[] {
+    return this.nodeRegistry.list(filter);
+  }
+
+  nodeHeartbeat(id: string): boolean {
+    return this.nodeRegistry.heartbeat(id);
+  }
+
+  deregisterNode(id: string): boolean {
+    return this.nodeRegistry.deregister(id);
+  }
+
+  removeNode(id: string): boolean {
+    return this.nodeRegistry.remove(id);
+  }
+
+  findNodesByCapability(capability: string): MeshNode[] {
+    return this.nodeRegistry.findByCapability(capability);
   }
 
   private collectWikis(query: string, types?: EntityType[]): WikiSummary[] {
