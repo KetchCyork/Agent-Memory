@@ -359,6 +359,73 @@ export async function startMcpStdio(cfg: MemoryConfig, engine: MemoryEngine): Pr
     }
   );
 
+  server.registerTool(
+    "record_provenance",
+    {
+      title: "Record provenance",
+      description: "Record provenance metadata for a vault note — who ingested it, from where, and when. Use after any indexing or ingestion operation.",
+      inputSchema: {
+        notePath: z.string().describe("Vault-relative note path."),
+        source: z.enum(["vault", "indexer", "work-memory", "remote", "manual"]).describe("Ingestion source type."),
+        sourceUrl: z.string().optional().describe("Original URL or file path."),
+        sourceSystem: z.string().optional().describe("Source system name, e.g. 'onedrive', 'local-fs'."),
+        ingestedBy: z.string().optional().describe("Agent ID or connector name."),
+        sessionId: z.string().optional(),
+        confidence: z.number().optional().describe("Confidence 0-1."),
+        remoteNodeId: z.string().optional().describe("Remote node ID for remote ingestion."),
+        remoteConnector: z.string().optional().describe("Remote connector name."),
+        metadata: z.record(z.unknown()).optional(),
+      },
+    },
+    async (input) => {
+      const record = engine.recordProvenance(input as any);
+      return { content: [{ type: "text", text: JSON.stringify(record, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    "get_provenance",
+    {
+      title: "Get note provenance",
+      description: "Get all provenance records for a vault note path.",
+      inputSchema: {
+        notePath: z.string().describe("Vault-relative note path."),
+      },
+    },
+    async ({ notePath }) => {
+      const records = engine.getProvenance(notePath);
+      const text = records.length
+        ? records
+            .map(
+              (r) =>
+                `[${r.ingestedAt}] ${r.source}${r.ingestedBy ? ` by ${r.ingestedBy}` : ""}${r.sourceUrl ? ` from ${r.sourceUrl}` : ""}`
+            )
+            .join("\n")
+        : "No provenance records found.";
+      return { content: [{ type: "text", text }] };
+    }
+  );
+
+  server.registerTool(
+    "list_remote_provenance",
+    {
+      title: "List remote node provenance",
+      description: "List all provenance records from a specific remote ingestion node.",
+      inputSchema: {
+        remoteNodeId: z.string().describe("The remote node ID."),
+      },
+    },
+    async ({ remoteNodeId }) => {
+      const records = engine.listProvenanceByNode(remoteNodeId);
+      const text = records.length
+        ? records
+            .map((r) => `[${r.ingestedAt}] ${r.notePath} (${r.remoteConnector ?? "unknown connector"})`)
+            .join("\n")
+        : "No provenance records for this node.";
+      return { content: [{ type: "text", text }] };
+    }
+  );
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("[mcp] agent-memory-mesh stdio server ready");

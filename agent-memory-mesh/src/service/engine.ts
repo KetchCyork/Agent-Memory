@@ -17,8 +17,9 @@ import { Consolidator, type ConsolidationResult } from "../memory/consolidator.j
 import { ContextGraph, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult } from "../memory/context-graph.js";
 import { RetrievalPolicyStore, applyRecencyBoost, type RetrievalPolicy } from "../memory/retrieval-policy.js";
 import { FeedbackStore, applyFeedbackScoring, type FeedbackSignal, type NoteFeedback } from "../memory/feedback.js";
+import { ProvenanceStore, type ProvenanceRecord, type ProvenanceFilter, type ProvenanceSource } from "../memory/provenance.js";
 
-export { type WorkMemoryEntry, type WorkMemoryQuery, type ConsolidationResult, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult, type RetrievalPolicy, type FeedbackSignal, type NoteFeedback };
+export { type WorkMemoryEntry, type WorkMemoryQuery, type ConsolidationResult, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult, type RetrievalPolicy, type FeedbackSignal, type NoteFeedback, type ProvenanceRecord, type ProvenanceFilter, type ProvenanceSource };
 
 export interface WikiSummary {
   entityId: string;
@@ -41,6 +42,7 @@ export class MemoryEngine {
   private graph: ContextGraph;
   private policies: RetrievalPolicyStore;
   private feedback: FeedbackStore;
+  private provenance: ProvenanceStore;
   private opened = false;
 
   constructor(private cfg: MemoryConfig) {
@@ -58,6 +60,7 @@ export class MemoryEngine {
     });
     this.policies = new RetrievalPolicyStore(cfg.policiesPath);
     this.feedback = new FeedbackStore(cfg.feedbackPath);
+    this.provenance = new ProvenanceStore(cfg.provenancePath);
   }
 
   /** Open the store lazily, sizing the table from a probe embedding the first time. */
@@ -265,6 +268,32 @@ export class MemoryEngine {
 
     if (processedIds.length) this.feedback.markProcessed(processedIds);
     return { processed: processedIds.length, signals };
+  }
+
+  // Provenance & traceability
+
+  recordProvenance(entry: Omit<ProvenanceRecord, "id" | "ingestedAt">): ProvenanceRecord {
+    return this.provenance.record(entry);
+  }
+
+  getProvenance(notePath: string): ProvenanceRecord[] {
+    return this.provenance.getByNotePath(notePath);
+  }
+
+  listProvenance(filter?: ProvenanceFilter): ProvenanceRecord[] {
+    return this.provenance.list(filter);
+  }
+
+  deleteProvenance(id: string): boolean {
+    return this.provenance.delete(id);
+  }
+
+  listProvenanceByNode(remoteNodeId: string): ProvenanceRecord[] {
+    return this.provenance.listByRemoteNode(remoteNodeId);
+  }
+
+  provenanceSummaryByNode() {
+    return this.provenance.summaryByNode();
   }
 
   private collectWikis(query: string, types?: EntityType[]): WikiSummary[] {
