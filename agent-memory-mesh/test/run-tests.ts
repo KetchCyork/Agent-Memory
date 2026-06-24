@@ -5,6 +5,7 @@ import { runConsolidatorTests } from "./consolidator.test.js";
 import { runContextGraphTests } from "./context-graph.test.js";
 import { runRetrievalPolicyTests } from "./retrieval-policy.test.js";
 import { runFeedbackTests } from "./feedback.test.js";
+import { runHooksTests } from "./hooks.test.js";
 
 async function main() {
   let exitCode = 0;
@@ -14,6 +15,7 @@ async function main() {
     { name: "ContextGraph", fn: runContextGraphTests },
     { name: "RetrievalPolicy", fn: runRetrievalPolicyTests },
     { name: "Feedback", fn: runFeedbackTests },
+    { name: "Hooks", fn: runHooksTests },
   ];
 
   for (const suite of suites) {
