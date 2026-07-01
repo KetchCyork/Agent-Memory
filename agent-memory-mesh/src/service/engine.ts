@@ -9,9 +9,10 @@
 
 import type { MemoryConfig } from "../config.js";
 import { Embedder } from "../memory/embeddings.js";
-import { MemoryStore, type RetrievalHit } from "../memory/store.js";
+import { MemoryStore, type RetrievalHit, type Chunk } from "../memory/store.js";
 export { type RetrievalHit };
 import { Indexer, type IndexResult } from "../memory/indexer.js";
+import { chunkText } from "../memory/vault.js";
 import { WorkMemoryStore, type WorkMemoryEntry, type WorkMemoryQuery } from "../memory/work-memory.js";
 import { Consolidator, type ConsolidationResult } from "../memory/consolidator.js";
 import { ContextGraph, type ContextGraphEntity, type ContextGraphEdge, type EntityType, type NeighborResult } from "../memory/context-graph.js";
@@ -81,6 +82,33 @@ export class MemoryEngine {
     const res = await indexer.indexAll(onProgress);
     this.opened = true; // indexer opens the store as part of its run
     return res;
+  }
+
+  /** Ingest raw text content directly (no vault file needed — for remote nodes). */
+  async ingestText(opts: {
+    content: string;
+    notePath: string;
+    source?: string;
+    type?: string;
+    tags?: string;
+  }): Promise<{ chunks: number }> {
+    const noteChunks = chunkText(opts.content);
+    if (!noteChunks.length) return { chunks: 0 };
+    await this.ensureOpen();
+    const vectors = await this.embedder.embedMany(noteChunks.map((c) => c.text));
+    const now = new Date().toISOString();
+    const rows: Chunk[] = noteChunks.map((c, i) => ({
+      id: `${opts.notePath}#${c.index}`,
+      text: c.text,
+      vector: vectors[i],
+      notePath: opts.notePath,
+      type: opts.type ?? "document",
+      tags: opts.tags ?? "",
+      source: opts.source ?? "remote-ingest",
+      updated: now,
+    }));
+    await this.store.putNoteChunks(opts.notePath, rows);
+    return { chunks: rows.length };
   }
 
   // Work memory — episodic record of agent actions, outputs, and corrections.
