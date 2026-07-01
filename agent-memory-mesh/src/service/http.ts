@@ -9,6 +9,7 @@
  *   GET  /health                           -> { ok: true }
  *   POST /search   { query, k?, filter?, policy? }  -> { hits, wikis?, policy? }
  *   POST /reindex  {}                      -> { notes, chunks }
+ *   POST /ingest  { content, notePath?, source?, type?, tags? }  -> { ok, chunks, notePath }
  *   POST /work-memory  { entry }           -> { entry }
  *   GET  /work-memory  [?sessionId&type&agentId&since&limit]  -> { entries }
  *   POST /work-memory/correction           -> { entry }
@@ -92,6 +93,21 @@ export function startHttp(
       if (req.method === "POST" && url.pathname === "/reindex") {
         const result = await engine.reindex();
         return send(res, 200, result);
+      }
+
+      if (req.method === "POST" && url.pathname === "/ingest") {
+        const body = await readJson(req);
+        const content = String(body.content ?? "").trim();
+        if (!content) return send(res, 400, { error: "content is required" });
+        const notePath = String(body.notePath ?? body.source ?? `remote/${Date.now()}`);
+        const result = await engine.ingestText({
+          content,
+          notePath,
+          source: body.source ? String(body.source) : undefined,
+          type: body.type ? String(body.type) : undefined,
+          tags: body.tags ? String(body.tags) : undefined,
+        });
+        return send(res, 200, { ok: true, chunks: result.chunks, notePath });
       }
 
       // Retrieval policy endpoints
