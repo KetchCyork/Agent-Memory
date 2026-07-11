@@ -7,6 +7,9 @@
  * no matter how an agent reaches the brain.
  */
 
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, normalize } from "node:path";
+import matter from "gray-matter";
 import type { MemoryConfig } from "../config.js";
 import { Embedder } from "../memory/embeddings.js";
 import { MemoryStore, type RetrievalHit, type Chunk } from "../memory/store.js";
@@ -84,7 +87,11 @@ export class MemoryEngine {
     return res;
   }
 
-  /** Ingest raw text content directly (no vault file needed — for remote nodes). */
+  /**
+   * Ingest raw text content directly (for remote nodes). The note is written
+   * into the vault first — the vault is the store of record; the index is
+   * derived — then chunked and indexed under the given notePath.
+   */
   async ingestText(opts: {
     content: string;
     notePath: string;
@@ -94,9 +101,10 @@ export class MemoryEngine {
   }): Promise<{ chunks: number }> {
     const noteChunks = chunkText(opts.content);
     if (!noteChunks.length) return { chunks: 0 };
+    const now = new Date().toISOString();
+    await this.writeVaultNote(opts, now);
     await this.ensureOpen();
     const vectors = await this.embedder.embedMany(noteChunks.map((c) => c.text));
-    const now = new Date().toISOString();
     const rows: Chunk[] = noteChunks.map((c, i) => ({
       id: `${opts.notePath}#${c.index}`,
       text: c.text,
@@ -109,6 +117,34 @@ export class MemoryEngine {
     }));
     await this.store.putNoteChunks(opts.notePath, rows);
     return { chunks: rows.length };
+  }
+
+  /**
+   * Persist a remotely-ingested note as a markdown file in the vault. The
+   * frontmatter pins the notePath so a full reindex reproduces the same rows
+   * the direct ingest wrote (see parseNote).
+   */
+  private async writeVaultNote(
+    opts: { content: string; notePath: string; source?: string; type?: string; tags?: string },
+    updated: string,
+  ): Promise<void> {
+    const rel = normalize(opts.notePath.replace(/\\/g, "/"));
+    if (isAbsolute(rel) || rel === ".." || rel.startsWith("../")) {
+      throw new Error(`notePath escapes the vault: ${opts.notePath}`);
+    }
+    const file = join(
+      this.cfg.vaultPath,
+      rel.toLowerCase().endsWith(".md") ? rel : `${rel}.md`,
+    );
+    const body = matter.stringify(opts.content, {
+      notePath: opts.notePath,
+      type: opts.type ?? "document",
+      tags: opts.tags ?? "",
+      source: opts.source ?? "remote-ingest",
+      updated,
+    });
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(file, body, "utf8");
   }
 
   // Work memory — episodic record of agent actions, outputs, and corrections.
