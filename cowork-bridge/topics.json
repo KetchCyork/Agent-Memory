@@ -1,0 +1,43 @@
+{
+  "policy": "proposal-drafting",
+  "defaultK": 12,
+  "maxCharsPerDoc": 6000,
+  "topics": [
+    {
+      "slug": "structure-and-sections",
+      "title": "Proposal structure and section order",
+      "query": "TSP proposal standard sections executive summary methodology project scope deliverables milestones"
+    },
+    {
+      "slug": "commercial-terms",
+      "title": "Fees, billing basis and commercial terms",
+      "query": "project fee structure billing basis time and materials fixed fee payment terms exclusions expenses"
+    },
+    {
+      "slug": "methodology",
+      "title": "Delivery methodology and phasing",
+      "query": "SAP Activate phased approach implementation methodology phases quality gates cutover hypercare"
+    },
+    {
+      "slug": "roles-and-resourcing",
+      "title": "Roles, responsibilities and resourcing",
+      "query": "roles and responsibilities RACI matrix team composition key personnel resourcing client obligations"
+    },
+    {
+      "slug": "legal-boilerplate",
+      "title": "Definitions and contractual boilerplate",
+      "query": "definitions deliverables documentation intellectual property rights MSA statement of work travel expense policy"
+    },
+    {
+      "slug": "rfp-response-patterns",
+      "title": "RFP response patterns",
+      "query": "RFP response format cover letter table of contents company background qualifications proposed solution references"
+    },
+    {
+      "slug": "past-engagements",
+      "title": "Past proposals and engagements",
+      "query": "prior client proposal engagement scope S/4HANA migration support RFP response",
+      "k": 18
+    }
+  ]
+}
