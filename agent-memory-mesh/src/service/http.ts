@@ -63,15 +63,18 @@ export function startHttp(
   return new Promise((resolve) => {
   const server = createServer(async (req, res) => {
     try {
+      const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+
+      // Liveness probe stays unauthenticated. It exposes no memory content, and mesh
+      // health checkers (Agent OS MeshStatusChecker) poll it without a key — gating it
+      // makes a healthy brain read as unreachable on the dashboard.
+      if (req.method === "GET" && url.pathname === "/health") {
+        return send(res, 200, { ok: true, service: "agent-memory-mesh" });
+      }
+
       // Simple shared-secret auth, if configured.
       if (cfg.apiKey && req.headers["x-api-key"] !== cfg.apiKey) {
         return send(res, 401, { error: "unauthorized" });
-      }
-
-      const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
-
-      if (req.method === "GET" && url.pathname === "/health") {
-        return send(res, 200, { ok: true, service: "agent-memory-mesh" });
       }
 
       if (req.method === "POST" && url.pathname === "/search") {
