@@ -39,6 +39,25 @@ duplicating them. Running this twice in a row is harmless.
 
 ## Install on tspusl098
 
+### Before you run anything
+
+Open a **normal** PowerShell window (no admin needed), then once per session:
+
+```powershell
+cd "<the folder you extracted, e.g. $env:USERPROFILE\Downloads\windows-memory-setup\proposal-refresh>"
+Get-ChildItem -Recurse | Unblock-File                          # clears the downloaded-file flag
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force   # this window only
+```
+
+`Unblock-File` is not optional for files that arrived by taildrop, email or
+browser download — PowerShell blocks them on Mark-of-the-Web regardless of
+execution policy.
+
+After that, run the scripts directly: `.\setup-config.ps1`. The
+`powershell -ExecutionPolicy Bypass -File ...` form below is for a **cmd**
+prompt or a scheduled task; pasting it *into* PowerShell fails, because
+PowerShell reads `-ExecutionPolicy` as a command name.
+
 **1. Copy this folder** to the work laptop, e.g. `C:\CoworkMemory\proposal-refresh\`.
 
 **2. Create the shared config.** This file does **not** ship with the repo — it
