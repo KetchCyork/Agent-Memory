@@ -40,10 +40,25 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function Say { param([string]$m, [string]$c = "Gray") Write-Host $m -ForegroundColor $c }
-function Ok  { param([string]$m) Write-Host "  [ok]   $m" -ForegroundColor Green }
-function Bad { param([string]$m) Write-Host "  [FAIL] $m" -ForegroundColor Red }
-function Note{ param([string]$m) Write-Host "  [note] $m" -ForegroundColor Yellow }
+# Keep param() on its own line. Windows PowerShell 5.1 requires a statement
+# separator after the param block; pwsh 7 accepts it inline, which hides the
+# error on anything but the machine this actually runs on.
+function Say {
+  param([string]$m, [string]$c = "Gray")
+  Write-Host $m -ForegroundColor $c
+}
+function Ok {
+  param([string]$m)
+  Write-Host "  [ok]   $m" -ForegroundColor Green
+}
+function Bad {
+  param([string]$m)
+  Write-Host "  [FAIL] $m" -ForegroundColor Red
+}
+function Note {
+  param([string]$m)
+  Write-Host "  [note] $m" -ForegroundColor Yellow
+}
 
 $userRoot  = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
 $cfgDir    = Join-Path $userRoot ".cowork-memory"
