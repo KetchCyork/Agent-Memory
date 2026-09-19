@@ -140,8 +140,13 @@ try {
 }
 
 # What are we about to send?
-$docs = @(Get-ChildItem -LiteralPath $cfg.proposalPath -Recurse -File -Include *.docx, *.pdf -ErrorAction SilentlyContinue)
-Write-Log "Found $($docs.Count) .docx/.pdf files under the proposal folder"
+# Filter on the extension explicitly: -Include is silently ignored alongside
+# -LiteralPath, so the earlier version counted every file in the tree --
+# .pptx, .xlsx, even .mp4 recordings -- and reported them as documents.
+$ingestable = @(".docx", ".pdf")
+$allFiles = @(Get-ChildItem -LiteralPath $cfg.proposalPath -Recurse -File -ErrorAction SilentlyContinue)
+$docs = @($allFiles | Where-Object { $ingestable -contains $_.Extension.ToLower() })
+Write-Log "Found $($allFiles.Count) files in the tree; $($docs.Count) are .docx/.pdf"
 $recent = @($docs | Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-7) })
 Write-Log "$($recent.Count) of them changed in the last 7 days"
 
@@ -161,11 +166,15 @@ $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
 if (-not $npm) { $npm = Get-Command npm -ErrorAction SilentlyContinue }
 if (-not $npm) { Write-Log "npm not found on PATH." "ERROR"; exit 1 }
 
-# Not $args -- that is an automatic variable; shadowing it misbehaves under StrictMode.
-$npmArgs = @("run", "ingest-remote", "--", $cfg.proposalPath, "--type", $DocType)
-Write-Log "  $($npm.Source) $($npmArgs -join ' ')"
+# Build ONE argument string and quote the path ourselves. Passing an array to
+# -ArgumentList joins the elements with spaces and quotes nothing, so a path like
+# "D:\The Silicon Partners Inc\..." reached npm as "D:\The" and the ingest died
+# with ENOENT. A trailing backslash would escape the closing quote, so trim it.
+$proposalArg = $cfg.proposalPath.TrimEnd('\')
+$argLine = 'run ingest-remote -- "{0}" --type {1}' -f $proposalArg, $DocType
+Write-Log "  $($npm.Source) $argLine"
 
-$proc = Start-Process -FilePath $npm.Source -ArgumentList $npmArgs `
+$proc = Start-Process -FilePath $npm.Source -ArgumentList $argLine `
   -WorkingDirectory $cfg.ingestRepo -NoNewWindow -PassThru `
   -RedirectStandardOutput (Join-Path $LogDir "ingest-stdout.log") `
   -RedirectStandardError  (Join-Path $LogDir "ingest-stderr.log")
@@ -175,9 +184,14 @@ if (-not $proc.WaitForExit($TimeoutMinutes * 60 * 1000)) {
   try { $proc.Kill() } catch {}
   exit 1
 }
+# The timed overload can return before ExitCode is populated, which is why the
+# failure above logged "exit ()" with nothing in it. The parameterless wait
+# settles the process and its redirected streams.
+$proc.WaitForExit()
 $sw.Stop()
 
 $exit = $proc.ExitCode
+if ($null -eq $exit) { $exit = 1 }
 $mins = [math]::Round($sw.Elapsed.TotalMinutes, 1)
 
 foreach ($stream in @("ingest-stdout.log", "ingest-stderr.log")) {
