@@ -23,6 +23,10 @@ Agent-Memory :8377  ──tailnet──►  pull-tsp-memory.ps1
 Tradeoff: scheduled snapshot, not live retrieval. The style profile and drafting rules live
 in the Skill (always loaded); the retrieved proposal corpus lives in the folder.
 
+This keeps Cowork current with the *brain*. Keeping the brain current with
+SharePoint is a separate job — see `../proposal-refresh`. A fresh snapshot of a
+stale corpus is still stale.
+
 ## Install on tspusl098
 
 **1. Copy this folder** to the work laptop, e.g. `C:\CoworkMemory\bridge\`.
@@ -34,6 +38,10 @@ mkdir "$env:USERPROFILE\.cowork-memory" -Force
 @{ host = "100.74.9.120"; port = 8377; apiKey = "<MEMORY_API_KEY from agent-memory-mesh/.env>" } |
   ConvertTo-Json | Set-Content "$env:USERPROFILE\.cowork-memory\config.json"
 ```
+
+`../proposal-refresh` shares this file and adds `proposalPath` and `ingestRepo`
+to it — one key in one place. If you are installing both, write the config once
+with all five fields (see that README) rather than overwriting it here.
 
 **3. Run it once:**
 
