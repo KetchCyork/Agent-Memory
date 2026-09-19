@@ -41,11 +41,31 @@ duplicating them. Running this twice in a row is harmless.
 
 **1. Copy this folder** to the work laptop, e.g. `C:\CoworkMemory\proposal-refresh\`.
 
-**2. Extend the shared config.** This reuses the same file as the Cowork bridge —
-one key, one place. Add the two new fields:
+**2. Create the shared config.** This file does **not** ship with the repo — it
+holds your machine's paths and the brain's key, so you create it once. Run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup-config.ps1 -UpdateIngestEnv
+```
+
+It prompts for anything you don't pass, then validates before saving: the
+proposal folder exists and actually contains documents, the ingestion repo looks
+right, the brain answers, and the key is accepted by `/search` (not just
+`/health`, which is deliberately unauthenticated and would accept any key).
+`-UpdateIngestEnv` also fixes the ingestion repo's own `.env`, which currently
+has an empty `MEMORY_API_KEY` and 401s on every document.
+
+It writes to `$env:USERPROFILE\.cowork-memory\config.json` — note that
+`%USERPROFILE%` only expands in cmd and Explorer's address bar, not in
+PowerShell. Re-running is safe: it refuses to clobber an existing config unless
+you pass `-Force`.
+
+<details>
+<summary>Writing it by hand instead</summary>
 
 ```powershell
 $cfg = "$env:USERPROFILE\.cowork-memory\config.json"
+New-Item -ItemType Directory -Path (Split-Path $cfg) -Force | Out-Null
 @{
   host         = "100.74.9.120"
   port         = 8377
@@ -55,12 +75,10 @@ $cfg = "$env:USERPROFILE\.cowork-memory\config.json"
 } | ConvertTo-Json | Set-Content $cfg
 ```
 
-**3. Fix the ingestion repo's own key.** `Agent-proposal-ingestion\.env` has an
-empty `MEMORY_API_KEY`, which returns 401 on every call now that the brain is
-authenticated. Set it to the same value. The refresh script refuses to start
-until you do, rather than burning hours on a run that 401s all the way through.
+Then set `MEMORY_API_KEY` in `Agent-proposal-ingestion\.env` to the same value.
+</details>
 
-**4. Dry run first** — no ingest, just a census of what it sees:
+**3. Dry run first** — no ingest, just a census of what it sees:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\refresh-proposal-memory.ps1 -WhatIfOnly
@@ -69,13 +87,13 @@ powershell -ExecutionPolicy Bypass -File .\refresh-proposal-memory.ps1 -WhatIfOn
 Check the file count looks right. A count of 0 usually means OneDrive isn't
 synced or `proposalPath` is wrong.
 
-**5. Run it once for real**, and note how long it takes:
+**4. Run it once for real**, and note how long it takes:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\refresh-proposal-memory.ps1
 ```
 
-**6. Schedule it:**
+**5. Schedule it:**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install-ingest-task.ps1
@@ -89,6 +107,7 @@ network) fires when the machine is next usable instead of waiting a week.
 
 | File | Purpose |
 |---|---|
+| `setup-config.ps1` | Creates and validates the shared config (run first) |
 | `refresh-proposal-memory.ps1` | Preflight, ingest, verify, log |
 | `install-ingest-task.ps1` | Registers/removes the weekly task |
 
