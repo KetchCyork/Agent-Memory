@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Registers the weekly Windows Scheduled Task that refreshes proposal memory.
 
@@ -8,7 +8,7 @@
   Default: Mondays at 06:00, with StartWhenAvailable so a missed run (laptop off,
   asleep, or off the network) fires as soon as the machine is next usable rather
   than being skipped until the following week. The task does not try to wake the
-  machine — a corporate laptop usually won't allow it.
+  machine -- a corporate laptop usually won't allow it.
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File .\install-ingest-task.ps1
@@ -43,7 +43,7 @@ $action = New-ScheduledTaskAction `
 
 $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $DayOfWeek -At $At
 
-# A full pass re-embeds the whole corpus, so give it real headroom — but still
+# A full pass re-embeds the whole corpus, so give it real headroom -- but still
 # bound it, so a hung run can't sit there until the next week's trigger.
 $settings = New-ScheduledTaskSettingsSet `
   -StartWhenAvailable `

@@ -1,6 +1,6 @@
-<#
+﻿<#
 .SYNOPSIS
-  Creates and validates %USERPROFILE%\.cowork-memory\config.json — the shared
+  Creates and validates %USERPROFILE%\.cowork-memory\config.json -- the shared
   config used by both the Cowork bridge and the proposal refresh.
 
 .DESCRIPTION
@@ -16,7 +16,7 @@
     - the ingestion repo's own .env has a matching key (offers to fix it)
 
 .EXAMPLE
-  # interactive — prompts for anything not supplied
+  # interactive -- prompts for anything not supplied
   powershell -ExecutionPolicy Bypass -File .\setup-config.ps1
 
   # fully specified
@@ -102,7 +102,7 @@ if (-not (Test-Path -LiteralPath $ProposalPath)) {
 $docCount = @(Get-ChildItem -LiteralPath $ProposalPath -Recurse -File -Include *.docx, *.pdf -ErrorAction SilentlyContinue).Count
 if ($docCount -eq 0) {
   Bad "No .docx/.pdf files anywhere under $ProposalPath"
-  Note "If OneDrive uses Files On-Demand, placeholders still count — this means the path is wrong."
+  Note "If OneDrive uses Files On-Demand, placeholders still count -- this means the path is wrong."
   exit 1
 }
 Ok "Proposal folder: $docCount documents found"
@@ -121,7 +121,7 @@ if (-not (Test-Path -LiteralPath $IngestRepo)) {
   exit 1
 }
 if (-not (Test-Path -LiteralPath (Join-Path $IngestRepo "package.json"))) {
-  Bad "$IngestRepo has no package.json — that doesn't look like the checkout."
+  Bad "$IngestRepo has no package.json -- that doesn't look like the checkout."
   exit 1
 }
 Ok "Ingestion repo: $IngestRepo"
@@ -182,7 +182,7 @@ if (-not (Test-Path -LiteralPath $cfgDir)) { New-Item -ItemType Directory -Path 
 
 Ok "Wrote $cfgPath"
 
-# Keep the file to this user — it holds the shared secret.
+# Keep the file to this user -- it holds the shared secret.
 try {
   $acl = Get-Acl -LiteralPath $cfgPath
   $acl.SetAccessRuleProtection($true, $false)
@@ -212,12 +212,12 @@ if (Test-Path -LiteralPath $ingestEnv) {
     Ok "Updated MEMORY_API_KEY in $ingestEnv (backup alongside it)"
   } else {
     Say ""
-    if (-not $envKey) { Note "MEMORY_API_KEY is EMPTY in $ingestEnv — ingestion returns 401 on every document." }
-    else { Note "MEMORY_API_KEY in $ingestEnv does not match — one of them is stale." }
+    if (-not $envKey) { Note "MEMORY_API_KEY is EMPTY in $ingestEnv -- ingestion returns 401 on every document." }
+    else { Note "MEMORY_API_KEY in $ingestEnv does not match -- one of them is stale." }
     Note "Re-run with -UpdateIngestEnv to fix it, or edit that file by hand."
   }
 } else {
-  Note "No .env at $ingestEnv — the ingestion CLI may need one."
+  Note "No .env at $ingestEnv -- the ingestion CLI may need one."
 }
 
 Say ""

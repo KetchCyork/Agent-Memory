@@ -49,6 +49,38 @@ report "Get-Content -AsByteStream (5.1 uses -Encoding Byte)" \
 report "Test-Json / Get-Uptime / Join-String (7+ cmdlets)" \
   '\b(Test-Json|Get-Uptime|Join-String)\b'
 
+# Encoding. 5.1 reads a BOM-less file as Windows-1252, so UTF-8 multi-byte
+# characters mojibake. An em-dash (E2 80 94) becomes 'a EUR "' whose last byte is
+# U+201D — a right curly quote, which PowerShell accepts as a STRING DELIMITER.
+# That opens an unterminated string and the parse dies with MissingEndCurlyBrace
+# pointing at unrelated lines. Belt and braces: keep scripts ASCII AND add a BOM.
+nonascii=0
+for f in $(find . -name "*.ps1"); do
+  # Strip the BOM before checking, or it reports itself.
+  body=$(mktemp)
+  if [ "$(head -c 3 "$f" | xxd -p)" = "efbbbf" ]; then tail -c +4 "$f" > "$body"; else cp "$f" "$body"; fi
+  if LC_ALL=C grep -q '[^ -~	]' "$body"; then
+    echo "FAIL: non-ASCII characters (mojibake into string delimiters on 5.1)"
+    LC_ALL=C grep -n '[^ -~	]' "$body" | head -5 | sed "s|^|    $f:|"
+    fail=1; nonascii=1
+  fi
+  rm -f "$body"
+done
+[ "$nonascii" -eq 0 ] && echo "  ok: ASCII-only (BOM excluded)"
+
+for f in $(find . -name "*.ps1"); do
+  if [ "$(head -c 3 "$f" | xxd -p)" != "efbbbf" ]; then
+    echo "FAIL: missing UTF-8 BOM — 5.1 will guess Windows-1252"
+    echo "    $f"
+    fail=1
+  fi
+done
+
+# $args is an automatic variable; assigning to it is legal but shadows it and
+# interacts badly with StrictMode.
+report "assignment to the automatic variable \$args" \
+  '^\s*\$args\s*='
+
 echo
 if [ "$fail" -ne 0 ]; then
   echo "5.1 incompatibilities found."

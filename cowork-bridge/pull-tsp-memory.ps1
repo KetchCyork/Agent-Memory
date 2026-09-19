@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Pulls a TSP proposal memory snapshot from the Agent-Memory brain (HQ MacBook,
   over Tailscale) into a local folder that Claude Cowork can read.

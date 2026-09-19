@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Registers a Windows Scheduled Task that refreshes the Cowork memory snapshot.
 

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Re-ingests the SharePoint/OneDrive proposal folder into the Agent-Memory brain.
 
@@ -116,12 +116,12 @@ if (Test-Path -LiteralPath $ingestEnv) {
   $keyLine = Select-String -LiteralPath $ingestEnv -Pattern '^\s*MEMORY_API_KEY\s*=\s*(.*)$' | Select-Object -First 1
   $envKey = if ($keyLine) { $keyLine.Matches[0].Groups[1].Value.Trim() } else { "" }
   if (-not $envKey) {
-    Write-Log "MEMORY_API_KEY is empty in $ingestEnv — every /ingest call would return 401." "ERROR"
+    Write-Log "MEMORY_API_KEY is empty in $ingestEnv -- every /ingest call would return 401." "ERROR"
     Write-Log "Fix: set MEMORY_API_KEY in that file to the brain's key, then re-run." "ERROR"
     exit 1
   }
   if ($cfg.apiKey -and $envKey -ne $cfg.apiKey) {
-    Write-Log "MEMORY_API_KEY in $ingestEnv differs from the key in $ConfigPath — one of them is stale." "WARN"
+    Write-Log "MEMORY_API_KEY in $ingestEnv differs from the key in $ConfigPath -- one of them is stale." "WARN"
   }
 } else {
   Write-Log "No .env at $ingestEnv; relying on the CLI's own defaults." "WARN"
@@ -161,10 +161,11 @@ $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
 if (-not $npm) { $npm = Get-Command npm -ErrorAction SilentlyContinue }
 if (-not $npm) { Write-Log "npm not found on PATH." "ERROR"; exit 1 }
 
-$args = @("run", "ingest-remote", "--", $cfg.proposalPath, "--type", $DocType)
-Write-Log "  $($npm.Source) $($args -join ' ')"
+# Not $args -- that is an automatic variable; shadowing it misbehaves under StrictMode.
+$npmArgs = @("run", "ingest-remote", "--", $cfg.proposalPath, "--type", $DocType)
+Write-Log "  $($npm.Source) $($npmArgs -join ' ')"
 
-$proc = Start-Process -FilePath $npm.Source -ArgumentList $args `
+$proc = Start-Process -FilePath $npm.Source -ArgumentList $npmArgs `
   -WorkingDirectory $cfg.ingestRepo -NoNewWindow -PassThru `
   -RedirectStandardOutput (Join-Path $LogDir "ingest-stdout.log") `
   -RedirectStandardError  (Join-Path $LogDir "ingest-stderr.log")
