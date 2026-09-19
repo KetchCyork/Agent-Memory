@@ -190,10 +190,17 @@ if (-not $proc.WaitForExit($TimeoutMinutes * 60 * 1000)) {
 $proc.WaitForExit()
 $sw.Stop()
 
-$exit = $proc.ExitCode
-if ($null -eq $exit) { $exit = 1 }
+# Start-Process + redirected streams does not reliably surface ExitCode, so treat
+# it as advisory only. A 54-minute run that ingested 3,264 files and stored
+# 118,122 chunks was reported as a hard failure purely because of this value --
+# and worse, the old message claimed "Corpus left as it was" when in fact the
+# whole corpus had been replaced. Judge the run by what the CLI reported and by
+# what the brain actually holds.
+$exit = $null
+try { $exit = $proc.ExitCode } catch { $exit = $null }
 $mins = [math]::Round($sw.Elapsed.TotalMinutes, 1)
 
+$stdoutPath = Join-Path $LogDir "ingest-stdout.log"
 foreach ($stream in @("ingest-stdout.log", "ingest-stderr.log")) {
   $p = Join-Path $LogDir $stream
   if (Test-Path -LiteralPath $p) {
@@ -205,12 +212,36 @@ foreach ($stream in @("ingest-stdout.log", "ingest-stderr.log")) {
   }
 }
 
-if ($exit -ne 0) {
-  Write-Log "Ingest FAILED after $mins min (exit $exit). Corpus left as it was." "ERROR"
-  exit $exit
+# The CLI's own summary line is the authoritative account of what it did.
+$ingested = $null; $chunks = $null; $skipped = $null
+if (Test-Path -LiteralPath $stdoutPath) {
+  $summary = Select-String -LiteralPath $stdoutPath `
+    -Pattern 'Done\.\s+(\d+)\s+files ingested,\s+(\d+)\s+chunks stored\.\s+(\d+)\s+skipped' |
+    Select-Object -Last 1
+  if ($summary) {
+    $ingested = [int]$summary.Matches[0].Groups[1].Value
+    $chunks   = [int]$summary.Matches[0].Groups[2].Value
+    $skipped  = [int]$summary.Matches[0].Groups[3].Value
+  }
 }
 
-Write-Log "Ingest completed in $mins minutes."
+if ($null -ne $ingested) {
+  Write-Log "Ingest reported: $ingested files, $chunks chunks, $skipped skipped, in $mins min"
+  if ($ingested -eq 0) {
+    Write-Log "Nothing was ingested. Check the log tails above." "ERROR"
+    exit 1
+  }
+  if ($exit -ne 0 -and $null -ne $exit) {
+    # Completed its work but exited non-zero: worth knowing, not worth failing.
+    Write-Log "Note: the CLI exited $exit despite completing. Corpus WAS updated." "WARN"
+  }
+} elseif ($exit -ne 0) {
+  Write-Log "Ingest failed after $mins min (exit $exit) with no summary line -- see tails above." "ERROR"
+  Write-Log "Some documents may still have been ingested before it stopped." "ERROR"
+  exit 1
+} else {
+  Write-Log "Ingest finished in $mins min but printed no summary line." "WARN"
+}
 
 # ------------------------------------------------------------- verification
 # Confirm the brain now holds something ingested today, so a silently-empty run
