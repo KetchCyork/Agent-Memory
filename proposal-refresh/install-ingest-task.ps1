@@ -52,15 +52,51 @@ $settings = New-ScheduledTaskSettingsSet `
   -ExecutionTimeLimit (New-TimeSpan -Hours $TimeLimitHours) `
   -MultipleInstances IgnoreNew
 
-Register-ScheduledTask `
-  -TaskName $TaskName `
-  -Action $action `
-  -Trigger $trigger `
-  -Settings $settings `
-  -Description "Re-ingests the SharePoint proposal folder into the Agent-Memory brain so new proposals are drafted against current firm precedent." `
-  -Force | Out-Null
+# Register-ScheduledTask raises a NON-terminating CimException on an access
+# denial, which sails past $ErrorActionPreference and leaves the script printing
+# "Registered" for a task that does not exist. Force it to terminate, and verify
+# against the task store before claiming anything.
+$registered = $false
+try {
+  Register-ScheduledTask `
+    -TaskName $TaskName `
+    -Action $action `
+    -Trigger $trigger `
+    -Settings $settings `
+    -Description "Re-ingests the SharePoint proposal folder into the Agent-Memory brain so new proposals are drafted against current firm precedent." `
+    -User $env:USERNAME `
+    -RunLevel Limited `
+    -Force -ErrorAction Stop | Out-Null
+  $registered = $true
+} catch {
+  Write-Host "Register-ScheduledTask failed: $($_.Exception.Message)" -ForegroundColor Yellow
+  Write-Host "Falling back to schtasks.exe ..." -ForegroundColor Yellow
 
-Write-Host "Registered '$TaskName' - $DayOfWeek at $At (catches up if the machine was off)."
+  $dayMap = @{ Monday="MON"; Tuesday="TUE"; Wednesday="WED"; Thursday="THU"; Friday="FRI"; Saturday="SAT"; Sunday="SUN" }
+  # No extra arguments: refresh-proposal-memory.ps1 reads everything it needs
+  # from the shared config. (-OutputRoot belongs to the bridge script, not this one.)
+  $tr = "`"powershell.exe`" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`""
+  & schtasks.exe /Create /TN "$TaskName" /TR $tr /SC WEEKLY /D $dayMap[$DayOfWeek] /ST $At /F 2>&1 | ForEach-Object { Write-Host "  $_" }
+  if ($LASTEXITCODE -eq 0) { $registered = $true }
+}
+
+$check = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+if (-not $check) { $check = (& schtasks.exe /Query /TN "$TaskName" 2>$null) }
+
+if (-not $check -or -not $registered) {
+  Write-Host ""
+  Write-Host "FAILED - '$TaskName' was NOT registered." -ForegroundColor Red
+  Write-Host "Most likely corporate policy blocks task creation for standard users." -ForegroundColor Red
+  Write-Host "Options:" -ForegroundColor Red
+  Write-Host "  1. Re-run this script from an elevated PowerShell (Run as administrator)."
+  Write-Host "  2. Create it by hand in Task Scheduler - action:"
+  Write-Host "       powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`""
+  Write-Host "  3. Skip the schedule and run .\refresh-proposal-memory.ps1 yourself when new proposals land."
+  exit 1
+}
+
+Write-Host ""
+Write-Host "Registered '$TaskName' - $DayOfWeek at $At (catches up if the machine was off)." -ForegroundColor Green
 Write-Host ""
 Write-Host "Run it now:        Start-ScheduledTask -TaskName `"$TaskName`""
 Write-Host "Check last result: Get-ScheduledTaskInfo -TaskName `"$TaskName`""
