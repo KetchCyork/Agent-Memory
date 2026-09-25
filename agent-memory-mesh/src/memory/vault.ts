@@ -50,7 +50,12 @@ export async function parseNote(absPath: string, vaultRoot: string): Promise<Par
 
   const tags = Array.isArray(data.tags) ? data.tags.join(" ") : String(data.tags ?? "");
   return {
-    notePath: relative(vaultRoot, absPath),
+    // A frontmatter notePath pins the index identity for notes written by
+    // remote ingest, so a reindex reproduces the same rows the ingest wrote.
+    notePath:
+      typeof data.notePath === "string" && data.notePath
+        ? data.notePath
+        : relative(vaultRoot, absPath),
     type: String(data.type ?? "note"),
     tags,
     source: String(data.source ?? "manual"),
