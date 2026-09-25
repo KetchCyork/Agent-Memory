@@ -112,15 +112,27 @@ synced or `proposalPath` is wrong.
 powershell -ExecutionPolicy Bypass -File .\refresh-proposal-memory.ps1
 ```
 
-**5. Schedule it:**
+**5. Schedule it -- register BOTH tasks:**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install-ingest-task.ps1
+# daily incremental: seconds, keeps the corpus current
+.\install-ingest-task.ps1 -Daily -At "07:00" -TaskName "Proposal Memory Daily"
+
+# weekly full pass: the backstop
+.\install-ingest-task.ps1 -DayOfWeek Sunday -At "22:00"
 ```
 
-Mondays 06:00, with `StartWhenAvailable` so a missed run (laptop off or off the
-network) fires when the machine is next usable instead of waiting a week.
-`-DayOfWeek` and `-At` change the slot; `-Uninstall` removes it.
+The daily task passes `-ChangedOnly`, so it sends just what is new or modified
+since the last run. That is what actually keeps memory current -- a weekly full
+pass alone means drafting against a corpus up to seven days old, which is
+exactly what happened on 2026-09-25.
+
+Keep the weekly full pass too. It is the backstop for anything the manifest
+misses (an edit that preserved both mtime and size) and it re-establishes a
+clean baseline.
+
+Both use `StartWhenAvailable`, so a missed run fires when the machine is next
+usable instead of being skipped. `-Uninstall` removes a task by name.
 
 ## Files
 

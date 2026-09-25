@@ -29,6 +29,7 @@
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File .\refresh-proposal-memory.ps1
   powershell -ExecutionPolicy Bypass -File .\refresh-proposal-memory.ps1 -WhatIfOnly
+  powershell -ExecutionPolicy Bypass -File .\refresh-proposal-memory.ps1 -ChangedOnly
 #>
 
 [CmdletBinding()]
@@ -39,7 +40,10 @@ param(
   [string]$LogDir       = "",
   [string]$DocType      = "proposal",
   [int]$TimeoutMinutes  = 240,
-  [switch]$WhatIfOnly
+  [switch]$WhatIfOnly,
+  # Send only what changed since the last run, per the ingestion CLI's manifest.
+  # Seconds instead of ~an hour, so this can run daily rather than weekly.
+  [switch]$ChangedOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -160,7 +164,8 @@ if ($WhatIfOnly) {
 # A full pass re-embeds everything, which is why this is scheduled overnight.
 # The duration is logged so it's obvious if the corpus outgrows a weekly window.
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
-Write-Log "Starting ingest (full pass, idempotent)..."
+$modeLabel = if ($ChangedOnly) { "changed-only" } else { "full pass" }
+Write-Log "Starting ingest ($modeLabel, idempotent)..."
 
 $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
 if (-not $npm) { $npm = Get-Command npm -ErrorAction SilentlyContinue }
@@ -172,6 +177,7 @@ if (-not $npm) { Write-Log "npm not found on PATH." "ERROR"; exit 1 }
 # with ENOENT. A trailing backslash would escape the closing quote, so trim it.
 $proposalArg = $cfg.proposalPath.TrimEnd('\')
 $argLine = 'run ingest-remote -- "{0}" --type {1}' -f $proposalArg, $DocType
+if ($ChangedOnly) { $argLine += ' --changed-only' }
 Write-Log "  $($npm.Source) $argLine"
 
 $proc = Start-Process -FilePath $npm.Source -ArgumentList $argLine `
@@ -228,8 +234,13 @@ if (Test-Path -LiteralPath $stdoutPath) {
 if ($null -ne $ingested) {
   Write-Log "Ingest reported: $ingested files, $chunks chunks, $skipped skipped, in $mins min"
   if ($ingested -eq 0) {
-    Write-Log "Nothing was ingested. Check the log tails above." "ERROR"
-    exit 1
+    if ($ChangedOnly) {
+      # Entirely normal: nothing in SharePoint changed since the last run.
+      Write-Log "No new or modified documents since the last run."
+    } else {
+      Write-Log "Nothing was ingested. Check the log tails above." "ERROR"
+      exit 1
+    }
   }
   if ($exit -ne 0 -and $null -ne $exit) {
     # Completed its work but exited non-zero: worth knowing, not worth failing.

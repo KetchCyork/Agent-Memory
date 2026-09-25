@@ -22,6 +22,10 @@ param(
   [ValidateSet("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")]
   [string]$DayOfWeek = "Monday",
   [string]$At = "06:00",
+  # Register a DAILY incremental task instead of the weekly full pass. An
+  # incremental run takes seconds, so daily is what actually keeps the corpus
+  # current; keep the weekly full pass registered alongside it as the backstop.
+  [switch]$Daily,
   [int]$TimeLimitHours = 6,
   [switch]$Uninstall
 )
@@ -37,11 +41,16 @@ if ($Uninstall) {
 $script = Join-Path $PSScriptRoot "refresh-proposal-memory.ps1"
 if (-not (Test-Path -LiteralPath $script)) { throw "Cannot find $script" }
 
+$scriptArgs = if ($Daily) { " -ChangedOnly" } else { "" }
 $action = New-ScheduledTaskAction `
   -Execute "powershell.exe" `
-  -Argument ("-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"{0}`"" -f $script)
+  -Argument ("-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"{0}`"{1}" -f $script, $scriptArgs)
 
-$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $DayOfWeek -At $At
+$trigger = if ($Daily) {
+  New-ScheduledTaskTrigger -Daily -At $At
+} else {
+  New-ScheduledTaskTrigger -Weekly -DaysOfWeek $DayOfWeek -At $At
+}
 
 # A full pass re-embeds the whole corpus, so give it real headroom -- but still
 # bound it, so a hung run can't sit there until the next week's trigger.
@@ -75,8 +84,12 @@ try {
   $dayMap = @{ Monday="MON"; Tuesday="TUE"; Wednesday="WED"; Thursday="THU"; Friday="FRI"; Saturday="SAT"; Sunday="SUN" }
   # No extra arguments: refresh-proposal-memory.ps1 reads everything it needs
   # from the shared config. (-OutputRoot belongs to the bridge script, not this one.)
-  $tr = "`"powershell.exe`" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`""
-  & schtasks.exe /Create /TN "$TaskName" /TR $tr /SC WEEKLY /D $dayMap[$DayOfWeek] /ST $At /F 2>&1 | ForEach-Object { Write-Host "  $_" }
+  $tr = "`"powershell.exe`" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`"$scriptArgs"
+  if ($Daily) {
+    & schtasks.exe /Create /TN "$TaskName" /TR $tr /SC DAILY /ST $At /F 2>&1 | ForEach-Object { Write-Host "  $_" }
+  } else {
+    & schtasks.exe /Create /TN "$TaskName" /TR $tr /SC WEEKLY /D $dayMap[$DayOfWeek] /ST $At /F 2>&1 | ForEach-Object { Write-Host "  $_" }
+  }
   if ($LASTEXITCODE -eq 0) { $registered = $true }
 }
 
@@ -96,7 +109,8 @@ if (-not $check -or -not $registered) {
 }
 
 Write-Host ""
-Write-Host "Registered '$TaskName' - $DayOfWeek at $At (catches up if the machine was off)." -ForegroundColor Green
+$when = if ($Daily) { "daily at $At (incremental)" } else { "$DayOfWeek at $At (full pass)" }
+Write-Host "Registered '$TaskName' - $when (catches up if the machine was off)." -ForegroundColor Green
 Write-Host ""
 Write-Host "Run it now:        Start-ScheduledTask -TaskName `"$TaskName`""
 Write-Host "Check last result: Get-ScheduledTaskInfo -TaskName `"$TaskName`""
