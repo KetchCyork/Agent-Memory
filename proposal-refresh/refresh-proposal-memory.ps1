@@ -147,10 +147,15 @@ try {
 # Filter on the extension explicitly: -Include is silently ignored alongside
 # -LiteralPath, so the earlier version counted every file in the tree --
 # .pptx, .xlsx, even .mp4 recordings -- and reported them as documents.
-$ingestable = @(".docx", ".pdf")
+# Must match SUPPORTED_EXTENSIONS in the ingestion repo's src/sources/documents.ts.
+# If the census and the CLI disagree, the preview lies about what will be sent.
+$ingestable = @(".docx", ".pptx", ".pdf", ".txt", ".md")
 $allFiles = @(Get-ChildItem -LiteralPath $cfg.proposalPath -Recurse -File -ErrorAction SilentlyContinue)
 $docs = @($allFiles | Where-Object { $ingestable -contains $_.Extension.ToLower() })
-Write-Log "Found $($allFiles.Count) files in the tree; $($docs.Count) are .docx/.pdf"
+$byExt = $docs | Group-Object { $_.Extension.ToLower() } | Sort-Object Count -Descending
+$breakdown = ($byExt | ForEach-Object { "$($_.Name) $($_.Count)" }) -join ", "
+Write-Log "Found $($allFiles.Count) files in the tree; $($docs.Count) ingestable"
+if ($breakdown) { Write-Log "  by type: $breakdown" }
 $recent = @($docs | Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-7) })
 Write-Log "$($recent.Count) of them changed in the last 7 days"
 
