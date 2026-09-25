@@ -359,6 +359,72 @@ export async function startMcpStdio(cfg: MemoryConfig, engine: MemoryEngine): Pr
     }
   );
 
+  server.registerTool(
+    "register_node",
+    {
+      title: "Register mesh node",
+      description:
+        "Register or re-register a mesh runner node so the memory service knows it's online. " +
+        "Re-registering an existing name updates the address and capabilities in place.",
+      inputSchema: {
+        name: z.string().describe("Unique node name (e.g. 'macbook-hq', 'windows-laptop')."),
+        address: z.string().describe("Tailscale IP or hostname of the node's mesh runner."),
+        capabilities: z.array(z.string()).describe("List of capabilities this node offers, e.g. ['m365', 'memory', 'shell']."),
+        metadata: z.record(z.unknown()).optional().describe("Optional extra info (OS, runner version, etc.)."),
+      },
+    },
+    async ({ name, address, capabilities, metadata }) => {
+      const node = engine.registerNode({ name, address, capabilities, metadata });
+      return { content: [{ type: "text", text: JSON.stringify(node, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    "list_nodes",
+    {
+      title: "List mesh nodes",
+      description: "List all registered mesh nodes, optionally filtered by status or capability.",
+      inputSchema: {
+        status: z.enum(["online", "offline"]).optional().describe("Filter by node status."),
+        capability: z.string().optional().describe("Filter to nodes that offer this capability."),
+      },
+    },
+    async ({ status, capability }) => {
+      const nodes = engine.listNodes({ status, capability });
+      const text = nodes.length
+        ? nodes.map((n) => `[${n.status}] ${n.name} (${n.address}) — ${n.capabilities.join(", ")}`).join("\n")
+        : "No nodes found.";
+      return { content: [{ type: "text", text }] };
+    }
+  );
+
+  server.registerTool(
+    "list_onedrive_files",
+    {
+      title: "List OneDrive files",
+      description:
+        "List files in a OneDrive folder via Microsoft Graph API. " +
+        "Returns file metadata (name, size, lastModified, downloadUrl). " +
+        "Does NOT auto-ingest — files must be explicitly queued for human-approved indexing. " +
+        "Requires a valid delegated access token with Files.Read scope.",
+      inputSchema: {
+        accessToken: z.string().describe("Microsoft Graph API access token (Files.Read scope)."),
+        driveId: z.string().describe("Drive ID — use 'me' for the signed-in user's personal drive."),
+        folderId: z.string().optional().describe("Item ID of the folder to list. Omit for drive root."),
+        top: z.number().int().positive().optional().describe("Max items to return per page (default 50)."),
+      },
+    },
+    async ({ accessToken, driveId, folderId, top }) => {
+      const { OneDriveConnector } = await import("../connectors/onedrive.js");
+      const connector = new OneDriveConnector(accessToken);
+      const listing = await connector.listItems(driveId, folderId ?? null, top ?? 50);
+      const text = listing.items.length
+        ? listing.items.map((f) => `${f.file ? "📄" : "📁"} ${f.name} (${f.size ?? 0} bytes, ${f.lastModifiedDateTime})`).join("\n")
+        : "No items found.";
+      return { content: [{ type: "text", text }] };
+    }
+  );
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("[mcp] agent-memory-mesh stdio server ready");
